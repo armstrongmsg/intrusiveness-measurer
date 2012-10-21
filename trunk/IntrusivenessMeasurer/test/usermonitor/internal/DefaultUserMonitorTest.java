@@ -21,9 +21,11 @@ public class DefaultUserMonitorTest extends LoggedTest {
 	private final double testDeltaError = 0.005;
 	
 	private final String testMemoryFileName = "memory";
-	private final String testCPUFileName = "cpu";
+	private final String testCPUInfoFileName = "cpuInfo";
+	private final String testCPUUsageFileName = "cpuUsage";
 	private final String testMemoryRealFileName = "/proc/meminfo";
-	private final String testCPURealFileName = "/proc/cpuinfo";
+	private final String testCPUInfoRealFileName = "/proc/cpuinfo";
+	private final String testCPUUsageRealUsageFileName = "/proc/stat";
 
 	private final double testTotalMemory = 1000;
 	private final double testUsedMemory = 600;
@@ -36,25 +38,32 @@ public class DefaultUserMonitorTest extends LoggedTest {
 	@Before
 	public void setUp() throws IOException {
 		new File(testMemoryFileName).createNewFile();
-		new File(testCPUFileName).createNewFile();
+		new File(testCPUInfoFileName).createNewFile();
+		new File(testCPUUsageFileName).createNewFile();
 		
-		monitor = new DefaultUserMonitor(testMemoryFileName, testCPUFileName);
+		monitor = new DefaultUserMonitor(testMemoryFileName, testCPUInfoFileName, testCPUUsageFileName);
 	}
 	
 	@After
 	public void tearDown() {
 		new File(testMemoryFileName).delete();
-		new File(testCPUFileName).delete();
+		new File(testCPUInfoFileName).delete();
+		new File(testCPUUsageFileName).delete();
 	}
 	
 	@Test(expected = FileNotFoundException.class)
-	public void testConstructorMustReceiveExistentCPUFileName() throws FileNotFoundException {
-		new DefaultUserMonitor("non-existent file", testCPUFileName);
+	public void testConstructorMustReceiveExistentMemoryInfoFileName() throws FileNotFoundException {
+		new DefaultUserMonitor("non-existent file", testCPUInfoFileName, testCPUUsageFileName);
 	}
 	
 	@Test(expected = FileNotFoundException.class)
-	public void testConstructorMustReceiveExistentMemoryFileName() throws FileNotFoundException {
-		new DefaultUserMonitor(testMemoryFileName, "non-existent file");
+	public void testConstructorMustReceiveExistentCPUInfoFileName() throws FileNotFoundException {
+		new DefaultUserMonitor(testMemoryFileName, "non-existent file", testCPUUsageFileName);
+	}
+	
+	@Test(expected = FileNotFoundException.class)
+	public void testConstructorMustReceiveExistentCPUUsageFileName() throws FileNotFoundException {
+		new DefaultUserMonitor(testMemoryFileName, testCPUInfoFileName, "non-existent file");
 	}
 	
 	@Test
@@ -113,7 +122,7 @@ public class DefaultUserMonitorTest extends LoggedTest {
 	
 	@Test
 	public void testGetMemoryFromRealFilePerformanceTest() throws IOException {
-		monitor = new DefaultUserMonitor(testMemoryRealFileName, testCPUFileName);
+		monitor = new DefaultUserMonitor(testMemoryRealFileName, testCPUInfoFileName, testCPUUsageFileName);
 		long timeStart = System.currentTimeMillis();
 		
 		for (int i = 0; i < performanceTestNumberOfRepetitions; i++) {
