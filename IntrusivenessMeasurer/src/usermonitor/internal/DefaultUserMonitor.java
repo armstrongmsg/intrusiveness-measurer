@@ -19,28 +19,34 @@ public class DefaultUserMonitor implements UserMonitor {
 
 	private static final Logger logger = LoggerFactory.getLogger(DefaultUserMonitor.class);
 	private final RandomAccessFile memoryInfoFile;
-	private final RandomAccessFile CPUInfoFile;
+	private final RandomAccessFile cpuInfoFile;
+	private final RandomAccessFile cpuUsageFile;
 	
 	private static final String TOTAL_MEMORY_LINE_HEADER = "MemTotal:";
 	private static final String FREE_MEMORY_LINE_HEADER = "MemFree:";
 	
 	public DefaultUserMonitor(String memoryInfoFilename, 
-							String cpuInfoFilename) throws FileNotFoundException {
+							String cpuInfoFilename, String cpuUsageFilename) throws FileNotFoundException {
+		checkNotNull(memoryInfoFilename, "memoryInfoFileName must not be null.");
+		checkNotNull(cpuInfoFilename, "cpuInfoFileName must not be null.");
+		checkNotNull(cpuUsageFilename, "cpuUsageFileName must not be null.");
 		
 		logger.info("Started using {} as memory info file.", memoryInfoFilename);
 		logger.info("Started using {} as cpu info file.", cpuInfoFilename);
-		
-		checkNotNull(memoryInfoFilename, "memoryInfoFileName must not be null.");
-		checkNotNull(cpuInfoFilename, "cpuInfoFileName must not be null.");
+		logger.info("Started using {} as cpu usage file.", cpuUsageFilename);
 		
 		checkFileExist(cpuInfoFilename);
 		check(new File(cpuInfoFilename).canRead(), "Can't read cpuInfoFileName.");		
+		
+		checkFileExist(cpuUsageFilename);
+		check(new File(cpuUsageFilename).canRead(), "Can't read cpuUsageFileName.");		
 		
 		checkFileExist(memoryInfoFilename);
 		check(new File(memoryInfoFilename).canRead(), "Can't read memoryInfoFileName.");		
 		
 		memoryInfoFile = new RandomAccessFile(memoryInfoFilename, "r");		
-		CPUInfoFile = new RandomAccessFile(cpuInfoFilename, "r");
+		cpuInfoFile = new RandomAccessFile(cpuInfoFilename, "r");
+		cpuUsageFile = new RandomAccessFile(cpuUsageFilename, "r");
 	}
 	
 	private void checkFileExist(String fileName) throws FileNotFoundException {
