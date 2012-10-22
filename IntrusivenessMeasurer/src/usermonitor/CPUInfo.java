@@ -1,5 +1,42 @@
 package usermonitor;
 
-public class CPUInfo {
+import static commons.Preconditions.checkNonNegative;
+import static commons.Preconditions.checkNotNull;
 
+import java.util.List;
+
+public class CPUInfo {
+	private final List<CPU> cpus;
+	private final double systemUsage;
+	private final double userUsage;
+	private final double idle;
+	
+	public CPUInfo(List<CPU> cpus, double systemUsage, double userUsage,
+			double idle) {
+		checkNotNull(cpus, "cpus must not be null.");
+		checkNonNegative(systemUsage, "systemUsage must not be negative.");
+		checkNonNegative(userUsage, "userUsage must not be negative.");
+		checkNonNegative(idle, "idleUsage must not be negative.");
+	
+		this.cpus = cpus;
+		this.systemUsage = systemUsage;
+		this.userUsage = userUsage;
+		this.idle = idle;
+	}
+
+	public List<CPU> getCpus() {
+		return cpus;
+	}
+
+	public double getSystemUsage() {
+		return systemUsage;
+	}
+
+	public double getUserUsage() {
+		return userUsage;
+	}
+
+	public double getIdle() {
+		return idle;
+	}
 }

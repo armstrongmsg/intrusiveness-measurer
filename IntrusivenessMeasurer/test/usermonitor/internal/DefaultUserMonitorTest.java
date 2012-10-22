@@ -12,6 +12,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import usermonitor.CPU;
+import usermonitor.CPUInfo;
 import usermonitor.MemoryInfo;
 
 import commons.test.LoggedTest;
@@ -27,6 +29,22 @@ public class DefaultUserMonitorTest extends LoggedTest {
 	private final String testCPUInfoRealFileName = "/proc/cpuinfo";
 	private final String testCPUUsageRealUsageFileName = "/proc/stat";
 
+	private final String testCPU1ModelName = "model name 1";
+	private final String testCPU2ModelName = "model name 2";
+	private final String testCPU3ModelName = testCPU2ModelName;
+	
+	private final double cpu1Frequency = 1000;
+	private final double cpu2Frequency = 456;
+	private final double cpu3Frequency = 456;
+	
+	private final double cpu1CacheSize = 555;
+	private final double cpu2CacheSize = 123;
+	private final double cpu3CacheSize = 123;
+	
+	private final double cpuUserUsage = 2.1;
+	private final double cpuIdle = 55.01;
+	private final double cpuSystemUsage = 12.99;
+	
 	private final double testTotalMemory = 1000;
 	private final double testUsedMemory = 600;
 	
@@ -66,10 +84,15 @@ public class DefaultUserMonitorTest extends LoggedTest {
 		new DefaultUserMonitor(testMemoryFileName, testCPUInfoFileName, "non-existent file");
 	}
 	
+	
+	/*
+	 * Memory Info tests
+	 */
+	
 	@Test
 	public void testGetMemoryUsage() throws IOException {
 		writeValidMemoryFile();
-		MemoryInfo result = monitor.getMemoryUsage();
+		MemoryInfo result = monitor.getMemoryInfo();
 		assertEquals(testTotalMemory, result.getTotalMemory(), testDeltaError);
 		assertEquals(testUsedMemory, result.getUsedMemory(), testDeltaError);
 	}
@@ -77,7 +100,7 @@ public class DefaultUserMonitorTest extends LoggedTest {
 	@Test
 	public void testGetMemoryUsageFromFileWithInvertedOrderedData() throws IOException {
 		writeMemoryFileWithInvertedOrderedData();
-		MemoryInfo result = monitor.getMemoryUsage();
+		MemoryInfo result = monitor.getMemoryInfo();
 		assertEquals(testTotalMemory, result.getTotalMemory(), testDeltaError);
 		assertEquals(testUsedMemory, result.getUsedMemory(), testDeltaError);
 	}
@@ -85,7 +108,7 @@ public class DefaultUserMonitorTest extends LoggedTest {
 	@Test
 	public void testGetMemoryUsageFromFileWithCommentedLines() throws IOException {
 		writeMemoryFileCommentedLines();
-		MemoryInfo result = monitor.getMemoryUsage();
+		MemoryInfo result = monitor.getMemoryInfo();
 		assertEquals(testTotalMemory, result.getTotalMemory(), testDeltaError);
 		assertEquals(testUsedMemory, result.getUsedMemory(), testDeltaError);
 	}
@@ -93,18 +116,18 @@ public class DefaultUserMonitorTest extends LoggedTest {
 	@Test(expected = IOException.class)
 	public void testGetMemoryUsageFromIncompleteFile() throws IOException {
 		writeMemoryFileWithMissingInformation();
-		monitor.getMemoryUsage();
+		monitor.getMemoryInfo();
 	}
 	
 	@Test(expected = IOException.class)
 	public void testGetMemoryUsageFromInvalidFormatFile() throws IOException {
 		writeMemoryFileWithInvalidFormat();
-		monitor.getMemoryUsage();
+		monitor.getMemoryInfo();
 	}
 	
 	@Test(expected = IOException.class)
 	public void testGetMemoryUsageFromEmptyFile() throws IOException {
-		monitor.getMemoryUsage();
+		monitor.getMemoryInfo();
 	}
 	
 	@Test
@@ -113,7 +136,7 @@ public class DefaultUserMonitorTest extends LoggedTest {
 		long timeStart = System.currentTimeMillis();
 		
 		for (int i = 0; i < performanceTestNumberOfRepetitions; i++) {
-			monitor.getMemoryUsage();
+			monitor.getMemoryInfo();
 		}
 		
 		double delta = System.currentTimeMillis() - timeStart;
@@ -126,13 +149,134 @@ public class DefaultUserMonitorTest extends LoggedTest {
 		long timeStart = System.currentTimeMillis();
 		
 		for (int i = 0; i < performanceTestNumberOfRepetitions; i++) {
-			monitor.getMemoryUsage();
+			monitor.getMemoryInfo();
 		}
 		
 		double delta = System.currentTimeMillis() - timeStart;
 		assertTrue(delta/performanceTestNumberOfRepetitions < performanceTestMemoryLimitTime);
 	}
 	
+	@Test
+	public void testGetCPUInfoTest() throws IOException {
+		writeValidCPUInfoFile();
+		writeValidCPUUsageFile();
+		
+		CPUInfo result = monitor.getCPUInfo();
+		
+		assertEquals(3, result.getCpus().size());
+		
+		CPU cpu1 = result.getCpus().get(0);
+		assertEquals(testCPU1ModelName, cpu1.getModelName());
+		assertEquals(cpu1CacheSize, cpu1.getCacheSize(), testDeltaError);
+		assertEquals(cpu1Frequency, cpu1.getCpuFrequency(), testDeltaError);
+		
+		CPU cpu2 = result.getCpus().get(1);
+		assertEquals(testCPU2ModelName, cpu2.getModelName());
+		assertEquals(cpu2CacheSize, cpu2.getCacheSize(), testDeltaError);
+		assertEquals(cpu2Frequency, cpu2.getCpuFrequency(), testDeltaError);
+		
+		CPU cpu3 = result.getCpus().get(2);
+		assertEquals(testCPU3ModelName, cpu3.getModelName());
+		assertEquals(cpu3CacheSize, cpu3.getCacheSize(), testDeltaError);
+		assertEquals(cpu3Frequency, cpu3.getCpuFrequency(), testDeltaError);
+		
+		assertEquals(cpuIdle, result.getIdle(), testDeltaError);
+		assertEquals(cpuUserUsage, result.getUserUsage(), testDeltaError);	
+		assertEquals(cpuSystemUsage, result.getSystemUsage(), testDeltaError);	
+	}
+	
+	@Test(expected = IOException.class)
+	public void testGetCPUInfoFromIncompleteFile() throws IOException {
+		writeCPUInfoFileWithMissingModelName();
+		writeValidCPUUsageFile();
+		monitor.getCPUInfo();
+	}
+	
+	private void writeValidCPUInfoFile() throws IOException {
+		RandomAccessFile fileCPUInfo = new RandomAccessFile(testCPUInfoFileName, "rw");
+		
+		fileCPUInfo.write("# Some header\n".getBytes());
+		fileCPUInfo.write("info1  :   nothing    \n".getBytes());
+		fileCPUInfo.write(("model name     :   " + testCPU1ModelName + "\n").getBytes());
+		fileCPUInfo.write("info2  :   nothing    \n".getBytes());
+		fileCPUInfo.write("# Some comments\n".getBytes());
+		fileCPUInfo.write(("cpu MHz     :   " + cpu1Frequency + "\n").getBytes());
+		fileCPUInfo.write(("cache size     :   " + cpu1CacheSize + "\n").getBytes());
+		fileCPUInfo.write("info3  :   nothing    \n".getBytes());
+		fileCPUInfo.write(("\n").getBytes());
+		
+		fileCPUInfo.write("# Some header\n".getBytes());
+		fileCPUInfo.write("info1  :   nothing    \n".getBytes());
+		fileCPUInfo.write(("cache size     :   " + cpu2CacheSize + "\n").getBytes());
+		fileCPUInfo.write(("model name     :   " + testCPU2ModelName + "\n").getBytes());
+		fileCPUInfo.write("info2  :   nothing    \n".getBytes());
+		fileCPUInfo.write("# Some comments\n".getBytes());
+		fileCPUInfo.write(("cpu MHz     :   " + cpu2Frequency + "\n").getBytes());
+		fileCPUInfo.write("info3  :   nothing    \n".getBytes());
+		fileCPUInfo.write(("\n").getBytes());
+		
+		fileCPUInfo.write("# Some header\n".getBytes());
+		fileCPUInfo.write("info1  :   nothing    \n".getBytes());
+		fileCPUInfo.write("info2  :   nothing    \n".getBytes());
+		fileCPUInfo.write("# Some comments\n".getBytes());
+		fileCPUInfo.write(("cpu MHz     :   " + cpu3Frequency + "\n").getBytes());
+		fileCPUInfo.write(("model name     :   " + testCPU3ModelName + "\n").getBytes());
+		fileCPUInfo.write(("cache size     :   " + cpu3CacheSize + "\n").getBytes());
+		fileCPUInfo.write("info3  :   nothing    \n".getBytes());
+		fileCPUInfo.write(("\n").getBytes());
+		
+		fileCPUInfo.close();
+	}
+	
+	private void writeCPUInfoFileWithMissingModelName() throws IOException {
+		RandomAccessFile fileCPUInfo = new RandomAccessFile(testCPUInfoFileName, "rw");
+		
+		fileCPUInfo.write("# Some header\n".getBytes());
+		fileCPUInfo.write("info1  :   nothing    \n".getBytes());
+		fileCPUInfo.write(("model name     :   " + testCPU1ModelName + "\n").getBytes());
+		fileCPUInfo.write("info2  :   nothing    \n".getBytes());
+		fileCPUInfo.write("# Some comments\n".getBytes());
+		fileCPUInfo.write(("cpu MHz     :   " + cpu1Frequency + "\n").getBytes());
+		fileCPUInfo.write(("cache size     :   " + cpu1CacheSize + "\n").getBytes());
+		fileCPUInfo.write("info3  :   nothing    \n".getBytes());
+		fileCPUInfo.write(("\n").getBytes());
+		
+		// the second cpu has no model name
+		fileCPUInfo.write("# Some header\n".getBytes());
+		fileCPUInfo.write("info1  :   nothing    \n".getBytes());
+		fileCPUInfo.write(("cache size     :   " + cpu2CacheSize + "\n").getBytes());
+		fileCPUInfo.write("info2  :   nothing    \n".getBytes());
+		fileCPUInfo.write("# Some comments\n".getBytes());
+		fileCPUInfo.write(("cpu MHz     :   " + cpu2Frequency + "\n").getBytes());
+		fileCPUInfo.write("info3  :   nothing    \n".getBytes());
+		fileCPUInfo.write(("\n").getBytes());
+		
+		fileCPUInfo.write("# Some header\n".getBytes());
+		fileCPUInfo.write("info1  :   nothing    \n".getBytes());
+		fileCPUInfo.write("info2  :   nothing    \n".getBytes());
+		fileCPUInfo.write("# Some comments\n".getBytes());
+		fileCPUInfo.write(("cpu MHz     :   " + cpu3Frequency + "\n").getBytes());
+		fileCPUInfo.write(("model name     :   " + testCPU3ModelName + "\n").getBytes());
+		fileCPUInfo.write(("cache size     :   " + cpu3CacheSize + "\n").getBytes());
+		fileCPUInfo.write("info3  :   nothing    \n".getBytes());
+		fileCPUInfo.write(("\n").getBytes());
+		
+		fileCPUInfo.close();
+	}
+	
+	private void writeValidCPUUsageFile() throws IOException {
+		RandomAccessFile fileCPUUsage = new RandomAccessFile(testCPUUsageFileName, "rw");
+		
+		fileCPUUsage.write("unused line 1\n".getBytes());
+		fileCPUUsage.write("unused line 2\n".getBytes());
+		//Cpu(s):  2.3%us,  0.6%sy,  0.1%ni, 96.6%id,  0.4%wa,  0.0%hi,  0.0%si,  0.0%st
+		fileCPUUsage.write(("Cpu(s): " + cpuUserUsage + "%us, " + cpuSystemUsage + 
+						"%sy, " + "anything, " + cpuIdle + "%id, thing1, thing2" + "\n").getBytes());
+		fileCPUUsage.write("other line\n".getBytes());
+		
+		fileCPUUsage.close();
+	}
+
 	private void writeValidMemoryFile() throws IOException {
 		RandomAccessFile fileMemory = new RandomAccessFile(testMemoryFileName, "rw");
 		
