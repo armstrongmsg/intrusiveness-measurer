@@ -49,8 +49,8 @@ public class DefaultUserMonitorTest extends LoggedTest {
 	private final double testUsedMemory = 600;
 	
 	private final int performanceTestNumberOfRepetitions = 100;
-	private final double performanceTestMemoryLimitTime = 100;
-	private final double performanceTestCPULimitTime = 200;		
+	private final double performanceTestMemoryLimitTime = 50;
+	private final double performanceTestCPULimitTime = 100;		
 	
 	private DefaultUserMonitor monitor;
 	
@@ -156,6 +156,12 @@ public class DefaultUserMonitorTest extends LoggedTest {
 		double delta = System.currentTimeMillis() - timeStart;
 		assertTrue(delta/performanceTestNumberOfRepetitions < performanceTestMemoryLimitTime);
 	}
+	
+	/*
+	 * 
+	 * CPU Info tests
+	 * 
+	 */
 	
 	@Test
 	public void testGetCPUInfoTest() throws IOException {
