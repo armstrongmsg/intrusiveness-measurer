@@ -1,7 +1,12 @@
 package usermonitor.internal;
 
+import static commons.FileUtil.checkFileExist;
+import static commons.FileUtil.getNextLineOfData;
+import static commons.FileUtil.jumpLines;
+import static commons.FileUtil.readUntilFindBlankLine;
 import static commons.Preconditions.check;
 import static commons.Preconditions.checkNotNull;
+import static commons.StringUtil.isNumeric;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -55,102 +60,79 @@ public class DefaultUserMonitor implements UserMonitor {
 		cpuUsageFile = new RandomAccessFile(cpuUsageFilename, "r");
 	}
 	
-	private void checkFileExist(String fileName) throws FileNotFoundException {
-		if (!new File(fileName).exists()) {
-			throw new FileNotFoundException(fileName + " was not found.");
-		}
-	}
-	
 	@Override
 	public MemoryInfo getMemoryInfo() throws IOException {
-		
 		double totalMemory = -1;
 		double freeMemory = -1;
 		
 		while (totalMemory == -1 || freeMemory == -1) {
-			String line = memoryInfoFile.readLine();
-			if (line == null) {
-				throw new IOException("Could not find all necessary information in memory info file.");
-			}
-			
+			String line = getNextLineOfData(memoryInfoFile);
 			String[] tokens = line.split("\\s+");
-			
+
 			if (tokens[0].trim().equals(TOTAL_MEMORY_LINE_HEADER)) {
+				// FIXME resolve this duplication
+				if (!isNumeric(tokens[1])) {
+					throw new IOException("Invalid format of memory info file.");
+				}
 				totalMemory = new Double(tokens[1]);
 			} else if (tokens[0].trim().equals(FREE_MEMORY_LINE_HEADER)) {
+				if (!isNumeric(tokens[1])) {
+					throw new IOException("Invalid format of memory info file.");
+				}
 				freeMemory = new Double(tokens[1]);		
 			}
 		}
 		
-		memoryInfoFile.seek(0);
-		
+		rewindMemoryInfoFile();
 		return new MemoryInfo(totalMemory, totalMemory - freeMemory);
 	}
 
+	private void rewindMemoryInfoFile() throws IOException {
+		memoryInfoFile.seek(0);
+	}
+	
 	@Override
 	public CPUInfo getCPUInfo() throws IOException {
-		jumpLines(cpuUsageFile, 2);
-		String cpuInfoLine = cpuUsageFile.readLine();
-		String[] tokens = cpuInfoLine.split("\\s+");
+		String[] tokens = getTokensFromCPUUsageLine(readCPUUsageLine());
+		// FIXME the rewinding must be done after all the readings.
+		rewindCPUFiles();
 		
-		if (tokens.length < 5) {
-			throw new IOException("Invalid format of memory usage file.");
+		if (!isNumeric(tokens[1].split("%")[0]) || !isNumeric(tokens[2].split("%")[0])
+						|| !isNumeric(tokens[4].split("%")[0])) {
+			throw new IOException("Invalid format of CPU usage file.");
 		}
-		
-		double userUsage = 0;
-		double systemUsage = 0;
-		double idle = 0;
-		
-		try {
-			userUsage = new Double(tokens[1].split("%")[0]);
-			systemUsage = new Double(tokens[2].split("%")[0]);
-			idle = new Double(tokens[4].split("%")[0]);
-		} catch (NumberFormatException e) {
-			throw new IOException("Invalid format of memory usage file.");
-		}
-		
-		cpuUsageFile.seek(0);
-		cpuInfoFile.seek(0);
-		
-		return new CPUInfo(readCPUsFromCPUInfoFile(), systemUsage, userUsage, idle);
+
+		return new CPUInfo(readCPUsFromCPUInfoFile(), new Double(tokens[2].split("%")[0]), 
+							new Double(tokens[1].split("%")[0]), 
+							new Double(tokens[4].split("%")[0]));
 	}
 
-	private void jumpLines(RandomAccessFile file, int numberOfLines) throws IOException {
-		for (int i = 0; i < numberOfLines; i++) {
-			if (file.readLine() == null) {
-				throw new IOException("Could not jump lines from the file.");
-			}
+	private String readCPUUsageLine() throws IOException {
+		jumpLines(cpuUsageFile, 2);
+		return cpuUsageFile.readLine();
+	}
+	
+	private String[] getTokensFromCPUUsageLine(String line) throws IOException {
+		String[] tokens = line.split("\\s+");
+		if (tokens.length < 5) {
+			throw new IOException("Invalid format of CPU usage file.");
 		}
+		return tokens;
+	}
+	
+	private void rewindCPUFiles() throws IOException {
+		cpuUsageFile.seek(0);
+		cpuInfoFile.seek(0);
 	}
 	
 	private List<CPU> readCPUsFromCPUInfoFile() throws IOException {
 		ArrayList<CPU> cpus = new ArrayList<CPU>();
-		CPU next = null;
-		
 		do {
 			logger.debug("cpu: {}", cpus.size());
-			next = readCPUFromFile();
-			if (next != null) {
-				cpus.add(next);
-			}
+			cpus.add(readCPUFromFile());
 		}
 		while (thereAreCPUsToRead());
-		
 		return cpus;
-	}
-	
-	private boolean thereAreCPUsToRead() throws IOException {
-		String line = cpuInfoFile.readLine();
-		boolean thereAre = line != null && !line.equals(""); 
-		cpuInfoFile.seek(cpuInfoFile.getFilePointer() - (line == null ? 0 : line.length()));
-		return thereAre;
-	}
-	
-	private void readUntilFindBlankLine(RandomAccessFile file) throws IOException {
-		String line = file.readLine();
-		while (line != null && !line.equals("")) {
-			line = file.readLine();
-		}
 	}
 	
 	private CPU readCPUFromFile() throws IOException {
@@ -161,16 +143,10 @@ public class DefaultUserMonitor implements UserMonitor {
 
 		// while there are fields to read ...
 		while (cpuFrequency == -1 || cacheSize == -1 || modelName == null) {
-			String line = cpuInfoFile.readLine();
-			logger.debug("read line: " + line);
-			
-			// if there is no more info in the middle of a cpu reading ...
-			if (line == null || line.equals("")) {
-				throw new IOException("Could not find all necessary information in memory info file.");
-			}
-			
+			String line = getNextLineOfData(cpuInfoFile);
 			String[] tokens = line.split(":");
 			
+			// FIXME check the format of the strings here
 			if (tokens[0].trim().equals(CPU_MODEL_NAME_LINE_HEADER)) {
 				modelName = tokens[1].trim();
 			} else if (tokens[0].trim().equals(CPU_FREQUENCY_LINE_HEADER)) {
@@ -183,5 +159,13 @@ public class DefaultUserMonitor implements UserMonitor {
 		// read the unnecessary data, to prepare to read the next cpu
 		readUntilFindBlankLine(cpuInfoFile);
 		return new CPU(cpuFrequency, modelName, cacheSize);
+	}
+	
+	private boolean thereAreCPUsToRead() throws IOException {
+		String line = cpuInfoFile.readLine();
+		boolean thereAre = line != null && !line.equals("");
+		// reset the file to the position it was before doing the checking
+		cpuInfoFile.seek(cpuInfoFile.getFilePointer() - (line == null ? 0 : line.length()));
+		return thereAre;
 	}
 }
