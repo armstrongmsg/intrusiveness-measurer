@@ -93,9 +93,24 @@ public class DefaultUserMonitor implements UserMonitor {
 		String cpuInfoLine = cpuUsageFile.readLine();
 		String[] tokens = cpuInfoLine.split("\\s+");
 		
-		double userUsage = new Double(tokens[1].split("%")[0]);
-		double systemUsage = new Double(tokens[2].split("%")[0]);
-		double idle = new Double(tokens[4].split("%")[0]);
+		if (tokens.length < 5) {
+			throw new IOException("Invalid format of memory usage file.");
+		}
+		
+		double userUsage = 0;
+		double systemUsage = 0;
+		double idle = 0;
+		
+		try {
+			userUsage = new Double(tokens[1].split("%")[0]);
+			systemUsage = new Double(tokens[2].split("%")[0]);
+			idle = new Double(tokens[4].split("%")[0]);
+		} catch (NumberFormatException e) {
+			throw new IOException("Invalid format of memory usage file.");
+		}
+		
+		cpuUsageFile.seek(0);
+		cpuInfoFile.seek(0);
 		
 		return new CPUInfo(readCPUsFromCPUInfoFile(), systemUsage, userUsage, idle);
 	}
@@ -161,7 +176,7 @@ public class DefaultUserMonitor implements UserMonitor {
 			} else if (tokens[0].trim().equals(CPU_FREQUENCY_LINE_HEADER)) {
 				cpuFrequency = new Double(tokens[1].trim());		
 			} else if (tokens[0].trim().equals(CPU_CACHE_SIZE_LINE_HEADER)) {
-				cacheSize = new Double(tokens[1].trim());
+				cacheSize = new Double(tokens[1].split("KB")[0]);
 			}
 		}
 		
