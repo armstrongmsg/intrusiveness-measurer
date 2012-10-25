@@ -24,39 +24,113 @@ import usermonitor.MemoryInfo;
 import usermonitor.UserMonitor;
 
 /**
- * TODO make doc
- * @author armstrong
- *
+ * This implementation of UserMonitor reads the data from the files passed in the 
+ * constructor to create the user info objects.
+ * 
+ * @author Armstrong Mardilson da Silva Goes, armstrongmsg@lsd.ufcg.edu.br
  */
 public class DefaultUserMonitor implements UserMonitor {
 
 	private static final Logger logger = LoggerFactory.getLogger(DefaultUserMonitor.class);
 	private final RandomAccessFile memoryInfoFile;
-	private final RandomAccessFile cpuInfoFile;
+	private final RandomAccessFile cpuConfigurationFile;
 	private final RandomAccessFile cpuUsageFile;
 	
+	/**
+	 * The line that contains the total memory information must start with this header.
+	 */
 	private static final String TOTAL_MEMORY_LINE_HEADER = "MemTotal:";
+	/**
+	 * The line that contains the free memory information must start with this header.
+	 */
 	private static final String FREE_MEMORY_LINE_HEADER = "MemFree:";
+	/**
+	 * The line that contains the cpu model name must start with this header.
+	 */
 	private static final String CPU_MODEL_NAME_LINE_HEADER = "model name";
+	/**
+	 * The line that contains the cpu frequency must start with this header.
+	 */
 	private static final String CPU_FREQUENCY_LINE_HEADER = "cpu MHz";
+	/**
+	 * The line that contains the cpu cache size must start with this header.
+	 */
 	private static final String CPU_CACHE_SIZE_LINE_HEADER = "cache size";
-	
-	// FIXME improve this code
-	// maybe create a class only with measures
+
 	private static final String CACHE_SIZE_UNIT_STRING = "KB";
 	
+	/**
+	 * Constructs a new DefaultUserMonitor instance which will read from the 
+	 * passed files.</br>
+	 * 
+	 * The file whose name is memoryInfoFileName is used to get the total memory amount and the free memory 
+	 * amount. The expected file pattern is the following:</br>
+	 * </br>
+	 * [ignored lines]</br>
+	 * TOTAL_MEMORY_LINE_HEADER : total memory kB</br>
+	 * [ignored lines]</br>
+	 * FREE_MEMORY_LINE_HEADER : free memory kB</br>
+	 * [ignored lines]</br>
+	 * </br>
+	 * The free memory may be in upper lines than the total memory.</br>
+	 * </br>
+	 * 
+	 * The file whose name is cpuConfigurationFileName is used to get the CPU configurations, like CPU frequency, 
+	 * cache size and model name. The expected file pattern is the following:</br>  
+	 * </br>
+	 * (cpu 0)</br>
+	 * [ignored lines]</br>
+	 * CPU_MODEL_NAME_LINE_HEADER : model name</br>
+	 * [ignored lines]</br>
+	 * CPU_FREQUENCY_LINE_HEADER : CPU frequency</br> 
+	 * [ignored lines]</br>
+	 * CPU_CACHE_SIZE_LINE_HEADER : cache size CACHE_SIZE_UNIT_STRING</br>
+	 * [ignored lines]</br>
+	 * </br>
+	 * (cpu 1)</br>
+	 * [ignored lines]</br>
+	 * CPU_MODEL_NAME_LINE_HEADER : model name</br>
+	 * [ignored lines]</br>
+	 * CPU_FREQUENCY_LINE_HEADER : CPU frequency</br> 
+	 * [ignored lines]</br>
+	 * CPU_CACHE_SIZE_LINE_HEADER : cache size CACHE_SIZE_UNIT_STRING</br>
+	 * [ignored lines]</br>
+	 * </br>
+	 * ...</br>
+	 * (cpu n)</br>
+	 * ...</br>
+	 * </br>
+	 * The read lines may be in different order.</br>
+	 * </br>
+	 * 
+	 * The file whose name is cpuUsageFileName is used to get the CPU system usage, user usage and idle CPU.
+	 * This file's pattern is the pattern of a typical call to top program. The expected pattern is the following:</br>
+	 * </br>
+	 * [ignored line]</br>
+	 * [ignored line]</br>
+	 * Cpu(s):  {CPU user usage}%us,  {CPU system usage}%sy,  ignored, {CPU idle}%id,  ignored, ignored, ...</br>
+	 * [ignored lines]</br>
+	 * 
+	 * @param memoryInfoFilename The name of the file that contains the informations about memory.
+	 * @param cpuConfigurationFilename The name of the file that contains the informations about CPU configuration.
+	 * @param cpuUsageFilename The name of the file that contains the informations about CPU usage.
+	 * @throws FileNotFoundException if any of the files named by memoryInfoFilename, 
+	 * cpuInfoFilename or cpuUsageFilename do not exist.
+	 * @throws IllegalArgumentException if one or more of the arguments is null or any of the 
+	 * passed files is not-readable.
+	 */
 	public DefaultUserMonitor(String memoryInfoFilename, 
-							String cpuInfoFilename, String cpuUsageFilename) throws FileNotFoundException {
+							String cpuConfigurationFilename, String cpuUsageFilename) throws FileNotFoundException {
 		checkNotNull(memoryInfoFilename, "memoryInfoFileName must not be null.");
-		checkNotNull(cpuInfoFilename, "cpuInfoFileName must not be null.");
+		checkNotNull(cpuConfigurationFilename, "cpuInfoFileName must not be null.");
 		checkNotNull(cpuUsageFilename, "cpuUsageFileName must not be null.");
 		
 		logger.info("Started using {} as memory info file.", memoryInfoFilename);
-		logger.info("Started using {} as cpu info file.", cpuInfoFilename);
+		logger.info("Started using {} as cpu configuration file.", cpuConfigurationFilename);
 		logger.info("Started using {} as cpu usage file.", cpuUsageFilename);
 		
-		checkFileExist(cpuInfoFilename);
-		check(new File(cpuInfoFilename).canRead(), "Can't read cpuInfoFileName.");		
+		checkFileExist(cpuConfigurationFilename);
+		check(new File(cpuConfigurationFilename).canRead(), "Can't read cpuInfoFileName.");		
 		
 		checkFileExist(cpuUsageFilename);
 		check(new File(cpuUsageFilename).canRead(), "Can't read cpuUsageFileName.");		
@@ -65,7 +139,7 @@ public class DefaultUserMonitor implements UserMonitor {
 		check(new File(memoryInfoFilename).canRead(), "Can't read memoryInfoFileName.");		
 		
 		memoryInfoFile = new RandomAccessFile(memoryInfoFilename, "r");	
-		cpuInfoFile = new RandomAccessFile(cpuInfoFilename, "r");
+		cpuConfigurationFile = new RandomAccessFile(cpuConfigurationFilename, "r");
 		cpuUsageFile = new RandomAccessFile(cpuUsageFilename, "r");
 	}
 	
@@ -140,7 +214,7 @@ public class DefaultUserMonitor implements UserMonitor {
 	
 	private void rewindCPUFiles() throws IOException {
 		cpuUsageFile.seek(0);
-		cpuInfoFile.seek(0);
+		cpuConfigurationFile.seek(0);
 	}
 	
 	private CPUConfiguration readCPUFromFile() throws IOException {
@@ -151,7 +225,7 @@ public class DefaultUserMonitor implements UserMonitor {
 
 		// while there are fields to read ...
 		while (cpuFrequency == -1 || cacheSize == -1 || modelName == null) {
-			String line = getNextLineOfData(cpuInfoFile);
+			String line = getNextLineOfData(cpuConfigurationFile);
 			String[] tokens = line.split(":");
 
 			if (tokens[0].trim().equals(CPU_MODEL_NAME_LINE_HEADER)) {
@@ -166,15 +240,15 @@ public class DefaultUserMonitor implements UserMonitor {
 		}
 		
 		// read the unnecessary data, to prepare to read the next cpu
-		readUntilFindBlankLine(cpuInfoFile);
+		readUntilFindBlankLine(cpuConfigurationFile);
 		return new CPUConfiguration(cpuFrequency, modelName, cacheSize);
 	}
 
 	private boolean thereAreCPUsToRead() throws IOException {
-		String line = cpuInfoFile.readLine();
+		String line = cpuConfigurationFile.readLine();
 		boolean thereAre = line != null && !line.equals("");
 		// reset the file to the position it was before doing the checking
-		cpuInfoFile.seek(cpuInfoFile.getFilePointer() - (line == null ? 0 : line.length()));
+		cpuConfigurationFile.seek(cpuConfigurationFile.getFilePointer() - (line == null ? 0 : line.length()));
 		return thereAre;
 	}
 	
