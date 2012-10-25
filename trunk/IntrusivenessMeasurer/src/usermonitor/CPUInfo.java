@@ -6,12 +6,12 @@ import static commons.Preconditions.checkNotNull;
 import java.util.List;
 
 public class CPUInfo {
-	private final List<CPU> cpus;
+	private final List<CPUConfiguration> cpus;
 	private final double systemUsage;
 	private final double userUsage;
 	private final double idle;
 	
-	public CPUInfo(List<CPU> cpus, double systemUsage, double userUsage,
+	public CPUInfo(List<CPUConfiguration> cpus, double systemUsage, double userUsage,
 			double idle) {
 		checkNotNull(cpus, "cpus must not be null.");
 		checkNonNegative(systemUsage, "systemUsage must not be negative.");
@@ -24,7 +24,7 @@ public class CPUInfo {
 		this.idle = idle;
 	}
 
-	public List<CPU> getCpus() {
+	public List<CPUConfiguration> getCpus() {
 		return cpus;
 	}
 
