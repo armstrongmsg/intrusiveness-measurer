@@ -18,11 +18,16 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import usermonitor.CPU;
+import usermonitor.CPUConfiguration;
 import usermonitor.CPUInfo;
 import usermonitor.MemoryInfo;
 import usermonitor.UserMonitor;
 
+/**
+ * TODO make doc
+ * @author armstrong
+ *
+ */
 public class DefaultUserMonitor implements UserMonitor {
 
 	private static final Logger logger = LoggerFactory.getLogger(DefaultUserMonitor.class);
@@ -35,6 +40,10 @@ public class DefaultUserMonitor implements UserMonitor {
 	private static final String CPU_MODEL_NAME_LINE_HEADER = "model name";
 	private static final String CPU_FREQUENCY_LINE_HEADER = "cpu MHz";
 	private static final String CPU_CACHE_SIZE_LINE_HEADER = "cache size";
+	
+	// FIXME improve this code
+	// maybe create a class only with measures
+	private static final String CACHE_SIZE_UNIT_STRING = "KB";
 	
 	public DefaultUserMonitor(String memoryInfoFilename, 
 							String cpuInfoFilename, String cpuUsageFilename) throws FileNotFoundException {
@@ -55,7 +64,7 @@ public class DefaultUserMonitor implements UserMonitor {
 		checkFileExist(memoryInfoFilename);
 		check(new File(memoryInfoFilename).canRead(), "Can't read memoryInfoFileName.");		
 		
-		memoryInfoFile = new RandomAccessFile(memoryInfoFilename, "r");		
+		memoryInfoFile = new RandomAccessFile(memoryInfoFilename, "r");	
 		cpuInfoFile = new RandomAccessFile(cpuInfoFilename, "r");
 		cpuUsageFile = new RandomAccessFile(cpuUsageFilename, "r");
 	}
@@ -94,15 +103,15 @@ public class DefaultUserMonitor implements UserMonitor {
 	@Override
 	public CPUInfo getCPUInfo() throws IOException {
 		String[] tokens = getTokensFromCPUUsageLine(readCPUUsageLine());
-		// FIXME the rewinding must be done after all the readings.
-		rewindCPUFiles();
-		
+
 		if (!isNumeric(tokens[1].split("%")[0]) || !isNumeric(tokens[2].split("%")[0])
 						|| !isNumeric(tokens[4].split("%")[0])) {
 			throw new IOException("Invalid format of CPU usage file.");
 		}
 
-		return new CPUInfo(readCPUsFromCPUInfoFile(), new Double(tokens[2].split("%")[0]), 
+		List<CPUConfiguration> configurations = readCPUsFromCPUInfoFile();
+		rewindCPUFiles();
+		return new CPUInfo(configurations, new Double(tokens[2].split("%")[0]), 
 							new Double(tokens[1].split("%")[0]), 
 							new Double(tokens[4].split("%")[0]));
 	}
@@ -119,23 +128,22 @@ public class DefaultUserMonitor implements UserMonitor {
 		}
 		return tokens;
 	}
-	
-	private void rewindCPUFiles() throws IOException {
-		cpuUsageFile.seek(0);
-		cpuInfoFile.seek(0);
-	}
-	
-	private List<CPU> readCPUsFromCPUInfoFile() throws IOException {
-		ArrayList<CPU> cpus = new ArrayList<CPU>();
+
+	private List<CPUConfiguration> readCPUsFromCPUInfoFile() throws IOException {
+		ArrayList<CPUConfiguration> cpus = new ArrayList<CPUConfiguration>();
 		do {
-			logger.debug("cpu: {}", cpus.size());
 			cpus.add(readCPUFromFile());
 		}
 		while (thereAreCPUsToRead());
 		return cpus;
 	}
 	
-	private CPU readCPUFromFile() throws IOException {
+	private void rewindCPUFiles() throws IOException {
+		cpuUsageFile.seek(0);
+		cpuInfoFile.seek(0);
+	}
+	
+	private CPUConfiguration readCPUFromFile() throws IOException {
 		
 		double cpuFrequency = -1;
 		String modelName = null;
@@ -145,27 +153,40 @@ public class DefaultUserMonitor implements UserMonitor {
 		while (cpuFrequency == -1 || cacheSize == -1 || modelName == null) {
 			String line = getNextLineOfData(cpuInfoFile);
 			String[] tokens = line.split(":");
-			
-			// FIXME check the format of the strings here
+
 			if (tokens[0].trim().equals(CPU_MODEL_NAME_LINE_HEADER)) {
 				modelName = tokens[1].trim();
 			} else if (tokens[0].trim().equals(CPU_FREQUENCY_LINE_HEADER)) {
+				checkCPUFrequencyToken(tokens[1]);
 				cpuFrequency = new Double(tokens[1].trim());		
 			} else if (tokens[0].trim().equals(CPU_CACHE_SIZE_LINE_HEADER)) {
-				cacheSize = new Double(tokens[1].split("KB")[0]);
+				checkCacheSizeToken(tokens[1]);
+				cacheSize = new Double(tokens[1].split(CACHE_SIZE_UNIT_STRING)[0].trim());
 			}
 		}
 		
 		// read the unnecessary data, to prepare to read the next cpu
 		readUntilFindBlankLine(cpuInfoFile);
-		return new CPU(cpuFrequency, modelName, cacheSize);
+		return new CPUConfiguration(cpuFrequency, modelName, cacheSize);
 	}
-	
+
 	private boolean thereAreCPUsToRead() throws IOException {
 		String line = cpuInfoFile.readLine();
 		boolean thereAre = line != null && !line.equals("");
 		// reset the file to the position it was before doing the checking
 		cpuInfoFile.seek(cpuInfoFile.getFilePointer() - (line == null ? 0 : line.length()));
 		return thereAre;
+	}
+	
+	private void checkCPUFrequencyToken(String token) throws IOException {
+		if (!isNumeric(token.trim())) {
+			throw new IOException("Invalid format of CPU info file.");
+		}
+	}
+
+	private void checkCacheSizeToken(String token) throws IOException {
+		if (!isNumeric(token.split(CACHE_SIZE_UNIT_STRING)[0].trim())) {
+			throw new IOException("Invalid format of CPU info file.");
+		}
 	}
 }

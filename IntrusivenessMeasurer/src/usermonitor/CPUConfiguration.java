@@ -3,12 +3,12 @@ package usermonitor;
 import static commons.Preconditions.checkNonNegative;
 import static commons.Preconditions.checkNotNull;
 
-public class CPU {
+public class CPUConfiguration {
 	private final double cpuFrequency;
 	private final String modelName;
 	private final double cacheSize;
 	
-	public CPU(double cpuFrequency, String modelName, double cacheSize) {
+	public CPUConfiguration(double cpuFrequency, String modelName, double cacheSize) {
 		checkNonNegative(cpuFrequency, "cpuFrequency must not be negative.");
 		checkNotNull(modelName, "modelName must not be null.");
 		checkNonNegative(cacheSize, "cacheSize must not be negative.");
