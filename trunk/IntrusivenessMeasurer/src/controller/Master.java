@@ -1,5 +1,7 @@
 package controller;
 
-public interface Master {
+import exerciser.TaskMonitor;
+
+public interface Master extends TaskMonitor {
 
 }

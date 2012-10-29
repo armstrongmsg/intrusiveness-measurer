@@ -1,5 +1,5 @@
 package exerciser;
 
 public interface ResultsGetter {
-	void getResults();
+	RunningResults getResults(Task task);
 }
