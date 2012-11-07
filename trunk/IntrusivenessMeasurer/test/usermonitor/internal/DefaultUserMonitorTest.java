@@ -8,7 +8,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -16,15 +15,17 @@ import usermonitor.CPUConfiguration;
 import usermonitor.CPUInfo;
 import usermonitor.MemoryInfo;
 
-import commons.test.LoggedTest;
+import commons.test.FileBasedTest;
 
-public class DefaultUserMonitorTest extends LoggedTest {
+public class DefaultUserMonitorTest extends FileBasedTest {
 	
 	private final double testDeltaError = 0.005;
 	
-	private final String testMemoryFileName = "memory";
-	private final String testCPUInfoFileName = "cpuInfo";
-	private final String testCPUUsageFileName = "cpuUsage";
+	@SuppressWarnings("static-access")
+	private final String dataDirectory = super.testDataDirectory;
+	private final String testMemoryFileName = dataDirectory + File.separator + "memory";
+	private final String testCPUInfoFileName = dataDirectory + File.separator + "cpuInfo";
+	private final String testCPUUsageFileName = dataDirectory + File.separator + "cpuUsage";
 	private final String testMemoryRealFileName = "/proc/meminfo";
 	private final String testCPUInfoRealFileName = "/proc/cpuinfo";
 	private final String testCPUUsageRealFileName = testCPUUsageFileName;
@@ -55,20 +56,20 @@ public class DefaultUserMonitorTest extends LoggedTest {
 	private DefaultUserMonitor monitor;
 	
 	@Before
-	public void setUp() throws IOException {
+	public void startUp() throws IOException {
 		new File(testMemoryFileName).createNewFile();
 		new File(testCPUInfoFileName).createNewFile();
 		new File(testCPUUsageFileName).createNewFile();
 		
 		monitor = new DefaultUserMonitor(testMemoryFileName, testCPUInfoFileName, testCPUUsageFileName);
 	}
-	
+	/*
 	@After
-	public void tearDown() {
+	public void shutDown() {
 		new File(testMemoryFileName).delete();
 		new File(testCPUInfoFileName).delete();
 		new File(testCPUUsageFileName).delete();
-	}
+	}*/
 	
 	
 	/*
@@ -76,17 +77,17 @@ public class DefaultUserMonitorTest extends LoggedTest {
 	 */
 	
 	@Test(expected = FileNotFoundException.class)
-	public void testConstructorMustReceiveExistentMemoryInfoFileName() throws FileNotFoundException {
+	public void testConstructorMustReceiveExistentMemoryInfoFileName() throws IOException {
 		new DefaultUserMonitor("non-existent file", testCPUInfoFileName, testCPUUsageFileName);
 	}
 	
 	@Test(expected = FileNotFoundException.class)
-	public void testConstructorMustReceiveExistentCPUInfoFileName() throws FileNotFoundException {
+	public void testConstructorMustReceiveExistentCPUInfoFileName() throws IOException {
 		new DefaultUserMonitor(testMemoryFileName, "non-existent file", testCPUUsageFileName);
 	}
 	
 	@Test(expected = FileNotFoundException.class)
-	public void testConstructorMustReceiveExistentCPUUsageFileName() throws FileNotFoundException {
+	public void testConstructorMustReceiveExistentCPUUsageFileName() throws IOException {
 		new DefaultUserMonitor(testMemoryFileName, testCPUInfoFileName, "non-existent file");
 	}
 	

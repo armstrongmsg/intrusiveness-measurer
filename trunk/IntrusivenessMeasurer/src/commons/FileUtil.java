@@ -21,6 +21,20 @@ public class FileUtil {
 		}
 	}
 	
+	public static void checkFileIsReadable(String fileName) throws IOException {
+		checkNotNull(fileName, "fileName must not be null.");
+		if (!new File(fileName).canRead()) {
+			throw new IOException(fileName + " could not be read.");
+		}
+	}
+	
+	public static void checkFileIsWritable(String fileName) throws IOException {
+		checkNotNull(fileName, "fileName must not be null.");
+		if (!new File(fileName).canWrite()) {
+			throw new IOException(fileName + " could not be modified.");
+		}
+	}
+	
 	public static String getNextLineOfData(RandomAccessFile file) throws IOException {
 		checkNotNull(file, "file must not be null.");
 		String line = file.readLine();

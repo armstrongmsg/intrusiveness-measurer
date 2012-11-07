@@ -1,15 +1,13 @@
 package usermonitor.internal;
 
 import static commons.FileUtil.checkFileExist;
+import static commons.FileUtil.checkFileIsReadable;
 import static commons.FileUtil.getNextLineOfData;
 import static commons.FileUtil.jumpLines;
 import static commons.FileUtil.readUntilFindBlankLine;
-import static commons.Preconditions.check;
 import static commons.Preconditions.checkNotNull;
 import static commons.StringUtil.isNumeric;
 
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.ArrayList;
@@ -114,13 +112,12 @@ public class DefaultUserMonitor implements UserMonitor {
 	 * @param memoryInfoFilename The name of the file that contains the informations about memory.
 	 * @param cpuConfigurationFilename The name of the file that contains the informations about CPU configuration.
 	 * @param cpuUsageFilename The name of the file that contains the informations about CPU usage.
-	 * @throws FileNotFoundException if any of the files named by memoryInfoFilename, 
-	 * cpuInfoFilename or cpuUsageFilename do not exist.
+	 * @throws IOException 
 	 * @throws IllegalArgumentException if one or more of the arguments is null or any of the 
 	 * passed files is not-readable.
 	 */
 	public DefaultUserMonitor(String memoryInfoFilename, 
-							String cpuConfigurationFilename, String cpuUsageFilename) throws FileNotFoundException {
+							String cpuConfigurationFilename, String cpuUsageFilename) throws IOException {
 		checkNotNull(memoryInfoFilename, "memoryInfoFileName must not be null.");
 		checkNotNull(cpuConfigurationFilename, "cpuInfoFileName must not be null.");
 		checkNotNull(cpuUsageFilename, "cpuUsageFileName must not be null.");
@@ -130,13 +127,13 @@ public class DefaultUserMonitor implements UserMonitor {
 		logger.info("Started using {} as cpu usage file.", cpuUsageFilename);
 		
 		checkFileExist(cpuConfigurationFilename);
-		check(new File(cpuConfigurationFilename).canRead(), "Can't read cpuInfoFileName.");		
+		checkFileIsReadable(cpuConfigurationFilename);
 		
 		checkFileExist(cpuUsageFilename);
-		check(new File(cpuUsageFilename).canRead(), "Can't read cpuUsageFileName.");		
+		checkFileIsReadable(cpuUsageFilename);
 		
 		checkFileExist(memoryInfoFilename);
-		check(new File(memoryInfoFilename).canRead(), "Can't read memoryInfoFileName.");		
+		checkFileIsReadable(memoryInfoFilename);
 		
 		memoryInfoFile = new RandomAccessFile(memoryInfoFilename, "r");	
 		cpuConfigurationFile = new RandomAccessFile(cpuConfigurationFilename, "r");
