@@ -3,6 +3,8 @@ package controller.internal;
 import java.io.IOException;
 import java.util.List;
 
+import commons.PersistentMap;
+
 import usermonitor.CPUInfo;
 import usermonitor.MemoryInfo;
 import usermonitor.UserMonitor;
@@ -19,17 +21,17 @@ import exerciser.TaskScheduler;
 public class DefaultMaster implements Master {
 
 	private RegisterService registerService;
-	private PersistentMap<Slave, UserMonitor> userMonitors;
-	private PersistentMap<Task, Slave> runningTasks;
+	//private PersistentMap<Slave, UserMonitor> userMonitors;
+	//private PersistentMap<Task, Slave> runningTasks;
 	private TaskScheduler scheduler;
 	private ResultsGetter getter;
 	
 	@Override
 	public void completed(Task task) {
 		RunningResults results = null;
-		if (runningTasks.remove(task) != null) {
-			results = getter.getResults(task);
-		}
+		//if (runningTasks.remove(task) != null) {
+	//		results = getter.getResults(task);
+	//	}
 	}
 	
 	public void run() throws IOException {
@@ -38,14 +40,14 @@ public class DefaultMaster implements Master {
 			List<Slave> onlineSlaves = registerService.getOnlineSlaves();
 			
 			for (Slave slave : onlineSlaves) {
-				UserMonitor monitor = userMonitors.get(slave);
-				CPUInfo cpuInfo = monitor.getCPUInfo();
-				MemoryInfo memoryInfo = monitor.getMemoryInfo();
+			//	UserMonitor monitor = userMonitors.get(slave);
+			//	CPUInfo cpuInfo = monitor.getCPUInfo();
+			//	MemoryInfo memoryInfo = monitor.getMemoryInfo();
 				
 				/*
 				if (hasTaskToBeScheduled(slave)) {
-					Task taskToSchedule = getTaskToBeScheduled();
-					scheduler.schedule(taskToSchedule);
+					Task taskToScheduled = getTaskToBeScheduled(cpuInfo, memoryInfo);
+					scheduler.schedule(taskToScheduled);
 				}*/
 			}
 		}
