@@ -12,12 +12,16 @@ public class FileBasedTest extends LoggedTest {
 	protected final static String testDataDirectory = "target"; 
 	
 	@Before
-	public void setUp() throws IOException {
+	public void fileBasedTestSetUp() throws IOException {
 		new File(testDataDirectory).mkdirs();
 	}
 	
 	@After
-	public void tearDown() throws IOException {
-		//FileUtils.deleteDirectory(testDataDirectory);
+	public void fileBasedTestTearDown() throws IOException {
+		FileUtils.deleteDirectory(testDataDirectory);
+	}
+	
+	public static String getTestDataDirectory() {
+		return testDataDirectory;
 	}
 }
