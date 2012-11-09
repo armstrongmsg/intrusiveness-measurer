@@ -1,6 +1,7 @@
 package usermonitor;
 
 import java.io.IOException;
+import java.io.Serializable;
 
 /**
  * This class is responsible by get some information from the user 
@@ -9,7 +10,7 @@ import java.io.IOException;
  * 
  * @author Armstrong Mardilson da Silva Goes, armstrongmsg@lsd.ufcg.edu.br
  */
-public interface UserMonitor {
+public interface UserMonitor extends Serializable {
 	
 	/**
 	 * Creates a new MemoryInfo instance containing data from 
