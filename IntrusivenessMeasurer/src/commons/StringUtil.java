@@ -16,4 +16,12 @@ public class StringUtil {
 		}
 		return true;
 	}
+	
+	public static String concat(String ... strings) {
+		StringBuilder builder = new StringBuilder();
+		for (String string : strings) {
+			builder.append(string);
+		}
+		return builder.toString();
+	}
 }
