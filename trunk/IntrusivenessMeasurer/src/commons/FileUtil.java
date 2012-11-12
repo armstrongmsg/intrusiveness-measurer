@@ -59,4 +59,15 @@ public class FileUtil {
 			line = file.readLine();
 		}
 	}
+	
+	public static String toPath(String first, String ... nodes) {
+		String separator = File.separator;
+		StringBuilder builder = new StringBuilder();
+		builder.append(first);
+		for (String node : nodes) {
+			builder.append(separator);
+			builder.append(node);
+		}
+		return builder.toString();
+	}
 }
