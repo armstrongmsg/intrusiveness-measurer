@@ -29,6 +29,8 @@ public class DefaultMaster implements Master {
 	//private PersistentMap<Task, Slave> runningTasks;
 	private TaskScheduler scheduler;
 	private ResultsGetter getter;
+	private ResultsGetter getter0;
+	
 	
 	public DefaultMaster(MapFactory factory) throws IOException {
 		userMonitors = factory.createMap("monitors");
