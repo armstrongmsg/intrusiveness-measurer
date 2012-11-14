@@ -37,6 +37,7 @@
 # include <stdlib.h>
 # include <unistd.h>
 # include <string.h>
+# include <signal.h>
 
 /*
   The pointer to the allocated memory in the session
@@ -121,6 +122,17 @@ int get_timeout(const char *const argv[])
 	return timeout;
 }
 
+/*
+   When handling kill, call this function
+*/
+void kill_handler(int signum)
+{
+	printf("signal:%d\n", signum);
+
+	on_free();
+	exit(signum);
+}
+
 int main(int argc, const char *const argv[])
 {	
 	int memory_to_allocate = 0;
@@ -129,6 +141,8 @@ int main(int argc, const char *const argv[])
 
 	memory_to_allocate = get_memory_to_allocate(argv);
 	timeout = get_timeout(argv);
+
+	signal(SIGTERM, kill_handler);
 
 	on_allocate(memory_to_allocate);
 	sleep(timeout);		
