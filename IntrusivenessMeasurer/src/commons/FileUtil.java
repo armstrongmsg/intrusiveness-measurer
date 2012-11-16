@@ -10,6 +10,7 @@ import java.io.RandomAccessFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+// FIXME test this class !!!!
 public class FileUtil {
 	
 	private static final Logger logger = LoggerFactory.getLogger(FileUtil.class);
@@ -32,6 +33,13 @@ public class FileUtil {
 		checkNotNull(fileName, "fileName must not be null.");
 		if (!new File(fileName).canWrite()) {
 			throw new IOException(fileName + " could not be modified.");
+		}
+	}
+	
+	public static void checkFileIsExecutable(String fileName) throws IOException {
+		checkNotNull(fileName, "fileName must not be null.");
+		if (!new File(fileName).canExecute()) {
+			throw new IOException(fileName + " could not be executed.");
 		}
 	}
 	
