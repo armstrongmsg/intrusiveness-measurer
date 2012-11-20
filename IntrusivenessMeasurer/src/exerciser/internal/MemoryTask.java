@@ -10,7 +10,11 @@ import static java.lang.String.valueOf;
 
 import java.io.IOException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import commons.OperatingSystem;
+import commons.SystemProcess;
 
 import exerciser.Task;
 import exerciser.TaskType;
@@ -25,6 +29,7 @@ import exerciser.TaskType;
  */
 public class MemoryTask implements Task {
 
+	private static Logger logger = LoggerFactory.getLogger(MemoryTask.class);
 	private OperatingSystem system;
 	
 	/**
@@ -36,7 +41,7 @@ public class MemoryTask implements Task {
 	 * The process which represents this {@link MemoryTask}. It can be null when there is no 
 	 * process running.
 	 */
-	private Process runningProcess;
+	private SystemProcess runningProcess;
 	
 	private int amountOfBytesToAllocate;
 	private int timeout;
@@ -73,7 +78,9 @@ public class MemoryTask implements Task {
 		String command = concat(memoryExerciser, " ",
 						 valueOf(amountOfBytesToAllocate), " ", 
 						 valueOf(timeout));
+		logger.debug("executing command: {}", command);
 		runningProcess = system.execute(command);
+		runningProcess.execute();
 	}
 
 	@Override
@@ -84,7 +91,8 @@ public class MemoryTask implements Task {
 	@Override
 	public void terminate() throws IOException {
 		if (isRunning()) {
-			runningProcess.destroy();			
+			logger.debug("terminating process: {}", memoryExerciser);
+			runningProcess.terminate();		
 			runningProcess = null;
 		}
 	}
