@@ -1,16 +1,16 @@
 package exerciser.internal;
 
-import static commons.FileUtil.checkFileExist;
-import static commons.FileUtil.checkFileIsExecutable;
 import static commons.Preconditions.checkNonNegative;
 import static commons.Preconditions.checkNotNull;
-import static commons.StringUtil.concat;
-import static commons.SystemUtil.processIsRunning;
+import static commons.util.FileUtil.checkFileExist;
+import static commons.util.FileUtil.checkFileIsExecutable;
+import static commons.util.StringUtil.concat;
 import static exerciser.TaskType.MEMORY;
-import static java.lang.Runtime.getRuntime;
 import static java.lang.String.valueOf;
 
 import java.io.IOException;
+
+import commons.OperatingSystem;
 
 import exerciser.Task;
 import exerciser.TaskType;
@@ -25,6 +25,8 @@ import exerciser.TaskType;
  */
 public class MemoryTask implements Task {
 
+	private OperatingSystem system;
+	
 	/**
 	 * The path to the binary which allocate and deallocate memory.
 	 */
@@ -40,6 +42,7 @@ public class MemoryTask implements Task {
 	private int timeout;
 	
 	/**
+	 * @param system The system where the task will run.
 	 * @param memoryExerciser The path to the binary which allocate and deallocate memory. It must be 
 	 * non-null and a executable file.
 	 * @param amountOfBytesToAllocate It must be non-negative.
@@ -49,8 +52,9 @@ public class MemoryTask implements Task {
 	 * @throws IllegalArgumentException If any of the arguments is null, or any of the numeric 
 	 * arguments is negative.
 	 */
-	public MemoryTask(String memoryExerciser, int amountOfBytesToAllocate,
+	public MemoryTask(OperatingSystem system, String memoryExerciser, int amountOfBytesToAllocate,
 			int timeout) throws IOException {
+		checkNotNull(system, "system must be non-null.");
 		checkNotNull(memoryExerciser, "memoryExerciser must be non-null.");
 		checkNonNegative(amountOfBytesToAllocate, "amountOfBytesToAllocate must be non-negative.");
 		checkNonNegative(timeout, "timeout must be non-negative.");
@@ -58,6 +62,7 @@ public class MemoryTask implements Task {
 		checkFileExist(memoryExerciser);
 		checkFileIsExecutable(memoryExerciser);
 		
+		this.system = system;
 		this.memoryExerciser = memoryExerciser;
 		this.amountOfBytesToAllocate = amountOfBytesToAllocate;
 		this.timeout = timeout;
@@ -68,7 +73,7 @@ public class MemoryTask implements Task {
 		String command = concat(memoryExerciser, " ",
 						 valueOf(amountOfBytesToAllocate), " ", 
 						 valueOf(timeout));
-		runningProcess = getRuntime().exec(command);
+		runningProcess = system.execute(command);
 	}
 
 	@Override
@@ -86,6 +91,6 @@ public class MemoryTask implements Task {
 
 	@Override
 	public boolean isRunning() throws IOException {
-		return processIsRunning(memoryExerciser);
+		return system.isRunning(memoryExerciser);
 	}
 }

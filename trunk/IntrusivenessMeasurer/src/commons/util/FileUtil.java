@@ -1,4 +1,4 @@
-package commons;
+package commons.util;
 
 import static commons.Preconditions.checkNotNull;
 
@@ -7,13 +7,8 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 // FIXME test this class !!!!
 public class FileUtil {
-	
-	private static final Logger logger = LoggerFactory.getLogger(FileUtil.class);
 	
 	public static void checkFileExist(String fileName) throws FileNotFoundException {
 		checkNotNull(fileName, "fileName must not be null.");
