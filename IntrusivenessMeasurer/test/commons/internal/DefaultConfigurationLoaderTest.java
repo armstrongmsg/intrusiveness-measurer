@@ -1,7 +1,7 @@
 package commons.internal;
 
-import static commons.FileUtil.toPath;
-import static commons.StringUtil.concat;
+import static commons.util.FileUtil.toPath;
+import static commons.util.StringUtil.concat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 

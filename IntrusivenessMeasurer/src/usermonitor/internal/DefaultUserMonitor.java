@@ -1,12 +1,12 @@
 package usermonitor.internal;
 
-import static commons.FileUtil.checkFileExist;
-import static commons.FileUtil.checkFileIsReadable;
-import static commons.FileUtil.getNextLineOfData;
-import static commons.FileUtil.jumpLines;
-import static commons.FileUtil.readUntilFindBlankLine;
 import static commons.Preconditions.checkNotNull;
-import static commons.StringUtil.isNumeric;
+import static commons.util.FileUtil.checkFileExist;
+import static commons.util.FileUtil.checkFileIsReadable;
+import static commons.util.FileUtil.getNextLineOfData;
+import static commons.util.FileUtil.jumpLines;
+import static commons.util.FileUtil.readUntilFindBlankLine;
+import static commons.util.StringUtil.isNumeric;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;

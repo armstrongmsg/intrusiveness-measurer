@@ -1,8 +1,8 @@
 package commons.internal;
 
-import static commons.FileUtil.checkFileExist;
-import static commons.FileUtil.checkFileIsReadable;
 import static commons.Preconditions.checkNotNull;
+import static commons.util.FileUtil.checkFileExist;
+import static commons.util.FileUtil.checkFileIsReadable;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
