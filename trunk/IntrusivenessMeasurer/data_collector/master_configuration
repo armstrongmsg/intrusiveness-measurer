@@ -1,0 +1,9 @@
+#
+TIME_BETWEEN_CHECKS=2
+
+#
+COLLECTOR_DIRECTORY=/tmp
+
+slave1
+slave2
+slave3
