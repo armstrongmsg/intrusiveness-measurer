@@ -19,7 +19,7 @@
 #
 # Parameters:
 # PROCESS_NAME : the name of the process to be monitored  
-# TIME_BETWEEN_CHECKS : time between data collects.
+# TIME_BETWEEN_CHECKS : time between data collects. time is given in seconds.
 # OUTPUT_BASE_FILENAME : this radical is used to construct the output file names. 
 # The program creates two files, one for CPU information and other for memory information. 
 # If OUTPUT_BASE_FILENAME is "aaaa", the created files are aaaa.cpu and aaaa.mem
