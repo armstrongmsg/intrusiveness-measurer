@@ -15,10 +15,10 @@
 # the given process.
 #
 # usage: 
-# slave_data_collector PROCESS_NAME TIME_BETWEEN_CHECKS OUTPUT_BASE_FILENAME
+# slave_data_collector PROCESS_PID TIME_BETWEEN_CHECKS OUTPUT_BASE_FILENAME
 #
 # Parameters:
-# PROCESS_NAME : the name of the process to be monitored  
+# PROCESS_PID : the PID of the process to be monitored  
 # TIME_BETWEEN_CHECKS : time between data collects. time is given in seconds.
 # OUTPUT_BASE_FILENAME : this radical is used to construct the output file names. 
 # The program creates two files, one for CPU information and other for memory information. 
@@ -28,7 +28,7 @@
 # TODO Arguments checking
 # TODO Error handling
 
-PROCESS_NAME=$1
+PROCESS_PID=$1
 TIME_BETWEEN_CHECKS=$2
 OUTPUT_BASE_FILENAME=$3
 OUTPUT_CPU_FILENAME="$OUTPUT_BASE_FILENAME.cpu"
@@ -53,31 +53,23 @@ function debug
 	fi
 }
 
-function get_process_pid
-{
-	echo "`ps axco pid,command | grep $PROCESS_NAME | cut -d " " -f -2`" 
-}
-
 function process_is_running
 {
-	# I think this is not enough.
-	# the process name is not enough to identify the Hadoop task.
-	# so I should consider the user and the group.
-	if [ ! "`ps axco command | grep $PROCESS_NAME`" = "" ] ; then
+	if [ ! "`ps axco pid | grep $PROCESS_PID`" = "" ] ; then
 		echo "1"
-	else
+	else 
 		echo "0"
 	fi
 }
 
 function get_cpu_consumption
 {
-	echo "`ps -p $(get_process_pid) -o %cpu | sed 1d`"
+	echo "`ps -p $PROCESS_PID -o %cpu | sed 1d`"
 }
 
 function get_memory_consumption
 {
-	echo "`ps -p $(get_process_pid) -o %mem | sed 1d`"
+	echo "`ps -p $PROCESS_PID -o %mem | sed 1d`"
 }
 
 function write_cpu_consumption
