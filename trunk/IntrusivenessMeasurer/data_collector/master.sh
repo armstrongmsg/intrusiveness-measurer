@@ -11,8 +11,7 @@
 #
 # Data Collector Master
 # 
-# This program starts a hadoop benchmark and the data collectors
-# on the used slaves.
+# This program starts a hadoop benchmark and the data collectors.
 #
 # usage:
 # master BENCHMARK CONFIGURATION_FILE
@@ -24,16 +23,11 @@
 # 
 # TIME_BETWEEN_CHECKS=VALUE
 # COLLECTOR_DIRECTORY=VALUE
-# SLAVE_NAME1
-# SLAVE_NAME2
-# ...
-# SLAVE_NAMEN
 #
 
 BENCHMARK=$1
 CONFIGURATION_FILE=$2
 COLLECTOR_NAME="slave_data_collector.sh"
-SLAVES=""
 TIME_BETWEEN_CHECKS=0
 COLLECTOR_DIRECTORY=""
 PROCESS_NAME=""
@@ -67,12 +61,6 @@ function read_configuration
 	TIME_BETWEEN_CHECKS="`echo ${CONTENT[0]} | cut -d = -f2-`"
 	COLLECTOR_DIRECTORY="`echo ${CONTENT[1]} | cut -d = -f2-`"
 
-	for i in ${!CONTENT[*]}; do
-		if [ ! $i -lt 2 ]; then
-			SLAVES="$SLAVES ${CONTENT[$i]}"
-		fi
-	done
-
 	debug "time between checks = $TIME_BETWEEN_CHECKS"
 	debug "collector directory = $COLLECTOR_DIRECTORY"
 }
@@ -95,27 +83,13 @@ function start_benchmark
 	esac
 }
 
-function start_collector_command
-{
-	debug "runned command bash $COLLECTOR_DIRECTORY/$COLLECTOR_NAME $PROCESS_NAME $TIME_BETWEEN_CHECKS $1"
-	# FIXME this is not working
-	# FIXME must find a way to call the script in the slave.
-	bash $COLLECTOR_DIRECTORY/$COLLECTOR_NAME $PROCESS_NAME $TIME_BETWEEN_CHECKS $1
-}
-
 function start_collector
 {
-	SLAVE_NAME=$1
-
-	debug "ssh to $SLAVE_NAME"
-	ssh $SLAVE_NAME start_collector_command $SLAVE_NAME
+	debug "starting collector"
+	bash $COLLECTOR_NAME $PROCESS_NAME $TIME_BETWEEN_CHECKS $1
 }
 
 read_configuration
 
 start_benchmark $BENCHMARK
-
-for slave in $SLAVES; do
-	start_collector $slave	
-done
-
+start_collector
