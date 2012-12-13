@@ -68,6 +68,7 @@ function debug_startup
 function debug
 {
 	if [ $DEBUG ]; then
+		echo -n "`date "+%d-%m-%Y-%H-%M-%S"`    " >> $DEBUG_FILE_NAME
 		# TODO if the log file is too big, it must truncate to 0
 		# or do something so the file does not grow without limit.
 		echo $1	>> $DEBUG_FILE_NAME
@@ -111,40 +112,39 @@ function start_benchmark
 {
 	BENCHMARK=$1
 
-	bash $HADOOP/bin/start-all.sh	
-
 	debug "run $BENCHMARK"
 	case $BENCHMARK in
 		"test")
-		# FIXME hard coded
-			PROCESS_PID="`ps axco command,pid | grep firefox | cut -d " " -f2-`"
+			COMMAND=/usr/bin/firefox 
 			;;
-		"tera")
-			$HADOOP/bin/hadoop jar $HADOOP/hadoop-*examples*.jar teragen $TERASORT_DATA_AMOUNT $TERASORT_INPUT_DIRECTORY
-			$HADOOP/bin/hadoop jar $HADOOP/hadoop-*examples*.jar terasort $TERASORT_INPUT_DIRECTORY $TERASORT_OUTPUT_DIRECTORY
-			$HADOOP/bin/hadoop jar $HADOOP/hadoop-*examples*.jar teravalidate $TERASORT_OUTPUT_DIRECTORY $TERASORT_VALIDATION_DIRECTORY
-			# FIXME correct this
-			# I need to get the pid of the hadoop process
-			PROCESS_PID="`ps axco command,pid | grep firefox | cut -d " " -f2-`"
+		"teragen")
+			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*examples*.jar teragen $TERASORT_DATA_AMOUNT $TERASORT_INPUT_DIRECTORY"
+			;;
+		"terasort")
+			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*examples*.jar terasort $TERASORT_INPUT_DIRECTORY $TERASORT_OUTPUT_DIRECTORY"
+			;;
+		"teravalidate")
+			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*examples*.jar teravalidate $TERASORT_OUTPUT_DIRECTORY $TERASORT_VALIDATION_DIRECTORY"
 			;;
 		"mr")
-			$HADOOP/bin/hadoop ar $HADOOP/hadoop-*test*.jar mrbench -numRuns $MR_BENCH_RUNS
-			# FIXME correct this
-			# I need to get the pid of the hadoop process
-			PROCESS_PID="`ps axco command,pid | grep firefox | cut -d " " -f2-`"
+			COMMAND="$HADOOP/bin/hadoop ar $HADOOP/hadoop-*test*.jar mrbench -numRuns $MR_BENCH_RUNS"
 			;;
-		"dfsio")
-			$HADOOP/bin/hadoop jar $HADOOP/hadoop-*test*.jar TestDFSIO -write -nrFiles $DFSIO_NUMBER_OF_FILES -fileSize $DFSIO_FILE_SIZE
-			$HADOOP/bin/hadoop jar $HADOOP/hadoop-*test*.jar TestDFSIO -read -nrFiles 10 -fileSize 1000
-			# FIXME correct this
-			# I need to get the pid of the hadoop process
-			PROCESS_PID="`ps axco command,pid | grep firefox | cut -d " " -f2-`"
+		"dfread")
+			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*test*.jar TestDFSIO -write -nrFiles $DFSIO_NUMBER_OF_FILES -fileSize $DFSIO_FILE_SIZE"
+			;;
+		"dfwrite")
+			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*test*.jar TestDFSIO -read -nrFiles $DFSIO_NUMBER_OF_FILES -fileSize $DFSIO_FILE_SIZE"
 			;;
 		*)
 			echo "Invalid benchmark."
 			exit
 			;;
 	esac
+		
+	$COMMAND &
+	PROCESS_PID=$!
+
+	debug "started pid: $PROCESS_PID"
 }
 
 function start_collector
@@ -153,6 +153,8 @@ function start_collector
 	bash $COLLECTOR_NAME $PROCESS_PID $TIME_BETWEEN_CHECKS $1 &
 }
 
+# TODO maybe write the machine configuration when starting
+debug_startup
 read_configuration
 
 start_benchmark $BENCHMARK

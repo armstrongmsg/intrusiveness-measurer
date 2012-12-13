@@ -47,6 +47,7 @@ function debug_startup
 function debug
 {
 	if [ $DEBUG ]; then
+		echo -n "`date "+%d-%m-%Y-%H-%M-%S"`    " >> $DEBUG_FILE_NAME
 		# TODO if the log file is too big, it must truncate to 0
 		# or do something so the file does not grow without limit.
 		echo $1	>> $DEBUG_FILE_NAME
