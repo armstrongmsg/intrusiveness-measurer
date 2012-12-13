@@ -98,7 +98,6 @@ function read_configuration
 	DFSIO_NUMBER_OF_FILES="`echo ${CONTENT[7]} | cut -d = -f2-`"
 	
 	debug "time between checks = $TIME_BETWEEN_CHECKS"
-	debug "collector directory = $COLLECTOR_DIRECTORY"
 	debug "terasort input directory = $TERASORT_INPUT_DIRECTORY"
 	debug "terasort output directory = $TERASORT_OUTPUT_DIRECTORY"
 	debug "terasort validation directory = $TERASORT_VALIDATION_DIRECTORY"
@@ -126,20 +125,28 @@ function start_benchmark
 		"teravalidate")
 			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*examples*.jar teravalidate $TERASORT_OUTPUT_DIRECTORY $TERASORT_VALIDATION_DIRECTORY"
 			;;
+		"teraclean")
+			COMMAND="$HADOOP/bin/hadoop fs -rmr $TERASORT_INPUT_DIRECTORY $TERASORT_OUTPUT_DIRECTORY $TERASORT_VALIDATION_DIRECTORY"
+			;;
 		"mr")
-			COMMAND="$HADOOP/bin/hadoop ar $HADOOP/hadoop-*test*.jar mrbench -numRuns $MR_BENCH_RUNS"
+			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*test*.jar mrbench -numRuns $MR_BENCH_RUNS"
 			;;
 		"dfread")
-			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*test*.jar TestDFSIO -write -nrFiles $DFSIO_NUMBER_OF_FILES -fileSize $DFSIO_FILE_SIZE"
+			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*test*.jar TestDFSIO -read -nrFiles $DFSIO_NUMBER_OF_FILES -fileSize $DFSIO_FILE_SIZE"
 			;;
 		"dfwrite")
-			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*test*.jar TestDFSIO -read -nrFiles $DFSIO_NUMBER_OF_FILES -fileSize $DFSIO_FILE_SIZE"
+			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*test*.jar TestDFSIO -write -nrFiles $DFSIO_NUMBER_OF_FILES -fileSize $DFSIO_FILE_SIZE"
+			;;
+		"dfclean")
+			COMMAND="$HADOOP/bin/hadoop jar $HADOOP/hadoop-*test*.jar TestDFSIO -clean"
 			;;
 		*)
 			echo "Invalid benchmark."
 			exit
 			;;
 	esac
+
+	debug "benchmark command : $COMMAND"	
 		
 	$COMMAND &
 	PROCESS_PID=$!
@@ -155,7 +162,12 @@ function start_collector
 
 # TODO maybe write the machine configuration when starting
 debug_startup
+debug "starting master"
+
 read_configuration
 
 start_benchmark $BENCHMARK
 start_collector $BENCHMARK
+
+debug "--------------------"
+debug "--------------------"

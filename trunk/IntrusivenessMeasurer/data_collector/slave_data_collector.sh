@@ -85,7 +85,7 @@ function write_memory_consumption
 
 function write_file_header
 {
-	echo "process=$PROCESS_NAME" >> "$1"
+	echo "process=$PROCESS_PID" >> "$1"
 	echo "start time=`date "+%d-%m-%Y-%H-%M-%S"`" >> "$1"
 	echo "time between checks=$TIME_BETWEEN_CHECKS" >> "$1"
 }
@@ -100,6 +100,7 @@ debug_startup
 touch $OUTPUT_CPU_FILENAME
 touch $OUTPUT_MEMORY_FILENAME
 
+debug "process to monitor : $PROCESS_PID"
 debug "created output files"
 
 write_file_header $OUTPUT_CPU_FILENAME
@@ -115,11 +116,16 @@ while [ $(process_is_running) -eq 1 ]; do
 	write_cpu_consumption $CPU_CONSUMPTION
 	write_memory_consumption $MEMORY_CONSUMPTION
 
+	debug "going sleep : $TIME_BETWEEN_CHECKS"
+
 	sleep $TIME_BETWEEN_CHECKS
 done
+
+debug "process to monitor stopped"
 
 write_file_ending $OUTPUT_CPU_FILENAME
 write_file_ending $OUTPUT_MEMORY_FILENAME
 
 debug "wrote ending of output files"
-
+debug "-----------------------------"
+debug "-----------------------------"
