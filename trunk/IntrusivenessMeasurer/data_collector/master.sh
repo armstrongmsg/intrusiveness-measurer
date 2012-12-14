@@ -56,6 +56,9 @@ DFSIO_NUMBER_OF_FILES=0
 DEBUG=true
 DEBUG_FILE_NAME="master.log"
 
+# systemtap configuration
+SYSTEMTAP_SCRIPT="systemtap/syscalls_elapsed.stp"
+
 HADOOP=$HADOOP_HOME
 
 function debug_startup
@@ -160,6 +163,12 @@ function start_collector
 	bash $COLLECTOR_NAME $PROCESS_PID $TIME_BETWEEN_CHECKS $1 &
 }
 
+function start_systemtap
+{
+	debug "starting systemtap"
+	stap $SYSTEMTAP_SCRIPT -x $PROCESS_PID -o "$1.syscall" &
+}
+
 # TODO maybe write the machine configuration when starting
 debug_startup
 debug "starting master"
@@ -168,6 +177,7 @@ read_configuration
 
 start_benchmark $BENCHMARK
 start_collector $BENCHMARK
+start_systemtap $BENCHMARK
 
 debug "--------------------"
 debug "--------------------"
