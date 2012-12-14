@@ -1,0 +1,1568 @@
+/**
+* Copyright (C) 2009 Universidade Federal de Campina Grande
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+*         http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+*
+* Probing filesystem syscall (and some vfs) calls
+* @author thiagoepdc - thiagoepdc@lsd.ufcg.edu.br
+*/
+# It is one of B, A, S, or G. 
+#	G indicates that the system call is a "fake" one generated internally by the Seer system. This is used to generate chdir indications that will correctly reflect the working directory of a process when it first appears in the trace.
+#TODO: checar se alguma funcao nao foi adicionada (http://linux.die.net/man/2/syscalls) ou verificando quais as chamadas presentes #no trace do seer. Ainda, ver a diferenca entre as chamadas deste script e as funcoes do vfs (stap -L ...)
+#TODO: Durante o init logar informacoes do fstab ... que sistemas de arquivos estao montados ( e os respectivos pontos de montagem)
+
+/** elapsed time map */
+global elapsed
+/** file descriptor map for syscall.write and syscall.read**/
+global descriptor
+
+probe begin {
+	 printf("system start %d\n", gettimeofday_us());
+}
+
+probe end {
+         printf("system finish %d\n", gettimeofday_us());
+}
+
+function proc:string() { 
+	return sprintf("%d %d %d (%s)", uid(), pid(), tid(), execname()) 
+}
+
+function shouldlog() {
+	/* 1056 -> Id of tracer user.*/
+	return "stapio" != execname() && uid() != 1056 && pid() == target()
+}
+
+function now() {
+	return gettimeofday_us();
+}
+
+function get_elapsed_time_and_clean(tid, probename) {
+        //Is it possible to have not the key ??
+        delta = now() - elapsed[tid, probename]
+        begin = elapsed[tid, probename]
+        delete elapsed[tid, probename]
+        return sprintf("%d>%d", begin, delta)
+}
+
+/**
+* OPEN
+* syscalls.stp
+	probe syscall.open = kernel.function("compat_sys_open").call ?,
+                     kernel.function("sys32_open").call ?,
+                     kernel.function("SyS_open").call !,
+                     kernel.function("sys_open").call ?
+
+
+* open.c
+	SYSCALL_DEFINE3(open, const char __user *, filename, int, flags, int, mode)
+        	long ret;
+	        if (force_o_largefile())
+                flags |= O_LARGEFILE;
+	        ret = do_sys_open(AT_FDCWD, filename, flags, mode);
+		...
+        	return ret;
+}
+Note: sys_open uses the same AT_FDCWD flag that many others calls to handle relative names I suppose.
+	Note: we use CWD here
+	Note: OK, tested using a 100MB sample.
+	TODO: How big is the number of open calls to special files (no name sockets) ? Take care of this, maybe we need post processing to see the next calls(to get file info)
+*/
+probe syscall.open {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.open.return {
+	#$filename:char const* $flags:int $mode:int $ret:long int
+	 if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($filename), $flags, $mode, $return)
+}
+
+probe kernel.function("do_filp_open") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("do_filp_open").return {
+	#kernel.function("do_filp_open@namei.c:1795") $dfd:int $pathname:char const* $open_flag:int $mode:int $acc_mode:int $count:int
+	if  (shouldlog()) printf("%s>%s>%s>%s>%s>%d>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info($return), user_string($pathname), $open_flag, $mode, $acc_mode)
+}
+
+/**
+* CLOSE
+*
+* syscalls.stp
+	probe syscall.close = kernel.function("SyS_close").call !,
+                      kernel.function("sys_close").call
+
+open.c 
+	SYSCALL_DEFINE1(close, unsigned int, fd) {
+	        struct file * filp;
+        	struct files_struct *files = current->files;
+	        struct fdtable *fdt;
+        	int retval;
+        	fdt = files_fdtable(files);
+	        if (fd >= fdt->max_fds)
+        	        goto out_unlock;
+	        filp = fdt->fd[fd];
+        	if (!filp)
+                	goto out_unlock;
+	        rcu_assign_pointer(fdt->fd[fd], NULL);
+        	FD_CLR(fd, fdt->close_on_exec);
+	        __put_unused_fd(files, fd);
+        	spin_unlock(&files->file_lock);
+	        retval = filp_close(filp, files);
+	        return retval;
+	out_unlock:
+        	spin_unlock(&files->file_lock);
+	        return -EBADF;
+	}
+	EXPORT_SYMBOL(sys_close)
+
+
+	int filp_close(struct file *filp, fl_owner_t id) {
+        	if (!file_count(filp)) {
+	                return 0;
+        	}
+	        if (filp->f_op && filp->f_op->flush)
+        	        retval = filp->f_op->flush(filp, id);
+	        dnotify_flush(filp, id);
+        	locks_remove_posix(filp, id);
+	        fput(filp);
+        	return retval;
+	}
+	EXPORT_SYMBOL(filp_close);
+
+Note: we use sys and filp_close to have file info
+*/
+probe syscall.close {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.close.return {
+	#syscall.close name:string fd:long argstr:string $fd:unsigned int
+	if  (shouldlog()) printf("%s>%s>%s>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), $fd, $return)
+}
+
+probe kernel.function("filp_close") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("filp_close").return {
+	#kernel.function("filp_close@/fs/open.c:1124") $filp:struct file* $id:fl_owner_t
+	if  (shouldlog()) printf("%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info($filp), $return)
+}
+
+/**
+* DUP
+* 
+* syscalls.stp
+	probe syscall.dup = kernel.function("SyS_dup").call !,
+                    kernel.function("sys_dup").call
+
+fcntl.c
+	SYSCALL_DEFINE1(dup, unsigned int, fildes) {
+	        struct file *file = fget(fildes);
+        	if (file) {
+                	ret = get_unused_fd();
+	                if (ret >= 0)
+        	                fd_install(ret, file);
+                	else
+                        	fput(file);
+	        }
+        	return ret;
+	}
+
+Note: we use fd and fget
+*/
+probe syscall.dup {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.dup.return {
+	//syscall.dup name:string oldfd:long argstr:string $fildes:unsigned int
+	if  (shouldlog()) printf("%s>%s>%s>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), $fildes, $return)
+}
+
+/**
+* DUP2, DUP3
+* 
+* syscalls.stp
+
+	probe syscall.dup2 = kernel.function("SyS_dup3").call !,
+        	             kernel.function("sys_dup3").call !,
+                	     kernel.function("SyS_dup2").call !,
+	                     kernel.function("sys_dup2").call
+
+	SYSCALL_DEFINE2(dup2, unsigned int, oldfd, unsigned int, newfd) {
+	        if (unlikely(newfd == oldfd)) { / corner case /
+        	        struct files_struct *files = current->files;
+                	int retval = oldfd;
+        	        if (!fcheck_files(files, oldfd))
+                	        retval = -EBADF;
+        	        return retval;
+	        }
+        	return sys_dup3(oldfd, newfd, 0);
+	}
+
+	SYSCALL_DEFINE3(dup3, unsigned int, oldfd, unsigned int, newfd, int, flags) {
+	        int err = -EBADF;
+        	struct file * file, *tofree;
+	        struct files_struct * files = current->files;
+        	struct fdtable *fdt;
+
+	        err = expand_files(files, newfd);
+ 	        file = fcheck(oldfd);
+        
+		err = -EBUSY;
+	        fdt = files_fdtable(files);
+	        tofree = fdt->fd[newfd];
+        	if (!tofree && FD_ISSET(newfd, fdt->open_fds))
+                	goto out_unlock;
+	        get_file(file);
+        	rcu_assign_pointer(fdt->fd[newfd], file);
+	        FD_SET(newfd, fdt->open_fds);
+        	if (flags & O_CLOEXEC)
+                	FD_SET(newfd, fdt->close_on_exec);
+	        else
+        	        FD_CLR(newfd, fdt->close_on_exec);
+	        return newfd;
+	}
+
+Note: we do not have access to file structs
+*/
+probe syscall.dup2 {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.dup2.return {
+	#syscall.dup2 name:string oldfd:long newfd:long argstr:string $oldfd:unsigned int $newfd:unsigned int
+	if  (shouldlog()) printf("%s>%s>%s>%d>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), $oldfd, $newfd, $return)
+}
+
+/**
+* READ 
+syscalls2.stp
+	probe syscall.read = kernel.function("SyS_read").call !,
+                     kernel.function("sys_read").call
+
+read_write.c
+	SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
+        	struct file *file;
+	        ssize_t ret = -EBADF;
+        	int fput_needed;
+
+	        file = fget_light(fd, &fput_needed);
+        	if (file) {
+                	loff_t pos = file_pos_read(file);
+	                ret = vfs_read(file, buf, count, &pos);
+        	        file_pos_write(file, pos);
+                	fput_light(file, fput_needed);
+	        }
+        	return ret;
+	}
+
+
+Note: we can use fget_light mapping tid and fd in the same way than llseek and WRITE.
+*/
+probe kernel.function("fget_light").return {
+        /* $return:struct file* $fd:unsigned int $fput_needed:int* */
+        if(shouldlog() && descriptor[$fd, "sys_write"] == "sys_write") {
+                descriptor[$fd, "sys_write"] = __file_info($return);
+        }
+        else if(shouldlog() && descriptor[$fd, "sys_read"] == "sys_read") {
+                descriptor[$fd, "sys_read"] = __file_info($return);
+        }
+}
+
+probe syscall.write  {
+	if(shouldlog()) {
+		elapsed[tid(), probefunc()] = now()
+		descriptor[$fd, probefunc()] = probefunc();
+	}
+}
+
+probe syscall.read {
+	if(shouldlog()) {
+		elapsed[tid(), probefunc()] = now()
+		descriptor[$fd, probefunc()] = probefunc();
+	}
+}
+
+probe syscall.write.return {
+        #syscall.write name:string fd:long buf_uaddr:long count:long argstr:string $fd:unsigned int $buf:char const* $count:size_t $fput_needed:int
+         if  ( shouldlog() )  {
+                printf("%s>%s>%s>%s>%d>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), descriptor[$fd, probefunc()], $fd, $count, $return);
+                delete descriptor[$fd, probefunc()];
+        }
+}
+
+probe syscall.read.return {
+        #name:string fd:long buf_uaddr:long count:long argstr:string $fd:unsigned int $buf:char* $count:size_t $fput_needed:int
+         if  ( shouldlog() ) {
+                 printf("%s>%s>%s>%s>%d>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), descriptor[$fd, probefunc()], $fd, $count, $return);
+                delete descriptor[$fd, probefunc()];
+        }
+}
+
+probe kernel.function("fget").return {
+        #kernel.function("fget@/tmp/buildd/linux-2.6-2.6.32/debian/build/source_i386_vserver/fs/file_table.c:305") $fd:unsigned int
+        if ($return == NULL) {
+				if  (shouldlog()) printf("%s>%s>(fd=%d)>%s\n", proc(), probefunc(), $fd, __file_info(NULL))
+        } else {
+				if  ( shouldlog() ) printf("%s>%s>(fd=%d)>%s\n", proc(), probefunc(), $fd, __file_info($return))
+        }
+}
+
+function __file_info:string(file:long)
+{
+	root_name = __task_root_name()
+	pwd_name = __task_pwd_name()
+	
+	base_path = "null"
+	full_path = "null"/*it should be delegated to the method that does this lookup*/
+	f_type = "null"
+	ino = -1
+try {
+	if (file != NULL) {
+	        dentry = @cast(file, "file")->f_path->dentry;
+        	full_path = __complete_path(file)
+        	f_size = __size(dentry)
+        	f_type = __type_from_dentry(dentry)
+
+	 	inode = @cast(dentry, "dentry")->d_inode;
+		if (inode != NULL) {
+        		ino = @cast(inode, "inode")->i_ino;
+		}
+	}
+} catch {
+		//do nothing
+}
+       	#root pwd fullpath f_size f_type ino
+        return sprintf("(%s>%s>%s>%d>%s>%d)", root_name, pwd_name, full_path, f_size, f_type, ino)
+}
+
+function __size(dentry:long) {
+        try {
+                inode = @cast(dentry, "dentry")->d_inode;
+                size =  @cast(inode, "inode")->i_size;
+        } catch {
+                size = -1;
+        }
+        return size;
+}
+
+function __file_info_from_dentry_and_vfs_mount:string(dentry:long, vfsmount:long) {
+        /* There are double checking for null value here and in lookup methods. clean it up later after manage to get fullpaths */
+        root_name = __task_root_name()
+        pwd_name = __task_pwd_name()
+
+        base_path = "null"
+        full_path = "null"/*it should be delegated to the method that does this lookup*/
+        f_type = "null"
+        ino = -1
+
+        if (dentry != NULL) {
+                full_path = __complete_path_from_dentry_and_vfsmount(dentry, vfsmount)
+                f_size = __size(dentry)
+                f_type = __type_from_dentry(dentry)
+                inode = @cast(dentry, "dentry")->d_inode;
+                if (inode != NULL) {
+                        ino = @cast(inode, "inode")->i_ino;
+                }
+        }
+       	#root pwd fullpath f_size f_type ino
+        return sprintf("(%s>%s>%s>%d>%s>%d)", root_name, pwd_name, full_path, f_size, f_type, ino)
+}
+
+function __file_info_from_dentry:string(dentry:long) {
+	/* There are double checking for null value here and in lookup methods. clean it up later after manage to get fullpaths */
+	root_name = __task_root_name()
+        pwd_name = __task_pwd_name()
+
+        base_path = "null"
+        full_path = "null"/*it should be delegated to the method that does this lookup*/
+        f_type = "null"
+        ino = -1
+	
+	if (dentry != NULL) {
+        	full_path = __complete_path_from_dentry(dentry)
+		f_size = __size(dentry)
+	        f_type = __type_from_dentry(dentry)
+        	inode = @cast(dentry, "dentry")->d_inode;
+		if (inode != NULL) {
+	        	ino = @cast(inode, "inode")->i_ino;
+		}
+	}
+       	#root pwd fullpath f_size f_type ino
+        return sprintf("(%s>%s>%s>%d>%s>%d)", root_name, pwd_name, full_path, f_size, f_type, ino)
+}
+
+function __task_pwd_name:string()
+{
+        pwd = & @cast(task_current(), "task_struct")->fs->pwd
+	return __complete_path_from_path(pwd)
+}
+
+function __task_root_name:string()
+{
+        root = & @cast(task_current(), "task_struct")->fs->root
+	return __complete_path_from_path(root)
+}
+
+function __type_from_dentry:string(dentry:long)
+{
+	ftype = "null"
+	try {
+	        inode = @cast(dentry, "dentry")->d_inode;
+        	mode = @cast(inode, "inode")->i_mode;
+        	ftype = _mknod_mode_str(mode)
+	} catch { 
+		/*pass*/
+	}
+        return ftype
+}
+
+function __complete_path:string(file:long) {
+        
+	root = & @cast(task_current(), "task_struct")->fs->root
+        dentry = @cast(file, "file")->f_path->dentry;
+        vfsmnt = @cast(file, "file")->f_path->mnt;
+
+        while (1) {
+                if (dentry == @cast(root, "path")->dentry && vfsmnt == @cast(root, "path")->mnt) {
+                        break;
+                }
+
+                if (dentry == @cast(vfsmnt, "vfsmount")->mnt_root || __dentry_IS_ROOT(dentry)) {
+                        /* Global root? */
+                        if (@cast(vfsmnt, "vfsmount")->mnt_parent == vfsmnt) {
+                                return sprintf("/%s", name);
+                        }
+
+                        dentry = @cast(vfsmnt, "vfsmount")->mnt_mountpoint;
+                        vfsmnt = @cast(vfsmnt, "vfsmount")->mnt_parent;
+                        continue;
+                }
+                name = __dentry_prepend(dentry, name);
+                dentry = @cast(dentry, "dentry")->d_parent;
+        }
+        return sprintf("/%s", name)
+}
+
+function __complete_path_from_dentry_and_vfsmount:string(dentry:long, vfsmnt:long) {
+
+	root = & @cast(task_current(), "task_struct")->fs->root
+
+        while (1) {
+                if (dentry == @cast(root, "path")->dentry && vfsmnt == @cast(root, "path")->mnt) {
+                        break;
+                }
+
+                if (dentry == @cast(vfsmnt, "vfsmount")->mnt_root || __dentry_IS_ROOT(dentry)) {
+                        /* Global root? */
+                        if (@cast(vfsmnt, "vfsmount")->mnt_parent == vfsmnt) {
+                                return sprintf("/%s", name);
+                        }
+
+                        dentry = @cast(vfsmnt, "vfsmount")->mnt_mountpoint;
+                        vfsmnt = @cast(vfsmnt, "vfsmount")->mnt_parent;
+                        continue;
+                }
+                name = __dentry_prepend(dentry, name);
+                dentry = @cast(dentry, "dentry")->d_parent;
+        }
+        return sprintf("/%s", name);
+}
+
+function __complete_path_from_path:string(path:long) {
+
+        root = & @cast(task_current(), "task_struct")->fs->root
+        dentry = @cast(path, "path")->dentry;
+        vfsmnt = @cast(path, "path")->mnt;
+
+        while (1) {
+                if (dentry == @cast(root, "path")->dentry && vfsmnt == @cast(root, "path")->mnt) {
+                        break;
+                }
+
+                if (dentry == @cast(vfsmnt, "vfsmount")->mnt_root || __dentry_IS_ROOT(dentry)) {
+                        /* Global root? */
+                        if (@cast(vfsmnt, "vfsmount")->mnt_parent == vfsmnt) {
+                                return sprintf("/%s", name);
+                        }
+
+                        dentry = @cast(vfsmnt, "vfsmount")->mnt_mountpoint;
+                        vfsmnt = @cast(vfsmnt, "vfsmount")->mnt_parent;
+                        continue;
+                }
+                name = __dentry_prepend(dentry, name);
+                dentry = @cast(dentry, "dentry")->d_parent;
+        }
+        return sprintf("/%s", name);
+}
+
+function __complete_path_from_dentry:string(dentry:long) {
+	parent = @cast(dentry, "dentry")->d_parent;
+	return sprintf("%s%s", reverse_path_walk(parent), d_name(dentry));
+}
+
+/** 
+* LLSEEK
+*
+* vfs.stp
+*	probe generic.fop.llseek = kernel.function ("generic_file_llseek")
+*
+* read_write.c
+
+	loff_t generic_file_llseek(struct file *file, loff_t offset, int origin) {
+        	mutex_lock(&file->f_dentry->d_inode->i_mutex);
+	        rval = generic_file_llseek_unlocked(file, offset, origin);
+        	mutex_unlock(&file->f_dentry->d_inode->i_mutex);
+	}
+	EXPORT_SYMBOL(generic_file_llseek);
+*
+	generic_file_llseek_unlocked(struct file *file, loff_t offset, int origin){
+        	struct inode *inode = file->f_mapping->host;
+
+	        switch (origin) {
+        	case SEEK_END:
+                	offset += inode->i_size;
+	                break;
+	        case SEEK_CUR:
+                	if (offset == 0)
+                        	return file->f_pos;
+	                offset += file->f_pos;
+        	        break;
+	        }
+		...
+	}
+	EXPORT_SYMBOL(generic_file_llseek_unlocked);
+*
+	loff_t vfs_llseek(struct file *file, loff_t offset, int origin) {
+	        loff_t (*fn)(struct file *, loff_t, int);
+        	fn = no_llseek;
+	        if (file->f_mode & FMODE_LSEEK) {
+        	        fn = default_llseek;
+	                if (file->f_op && file->f_op->llseek)
+        	                fn = file->f_op->llseek;
+	        }
+        	return fn(file, offset, origin);
+	}
+	EXPORT_SYMBOL(vfs_llseek);
+*
+*	SYSCALL_DEFINE5(llseek, unsigned int, fd, unsigned long, offset_high, unsigned long, offset_low, loff_t __user *, result, unsigned int, origin){
+		...
+	        file = fget_light(fd, &fput_needed);
+        	if (!file)
+                	goto bad;
+	        retval = -EINVAL;
+        	if (origin > SEEK_MAX)
+                	goto out_putf;
+	        offset = vfs_llseek(file, ((loff_t) offset_high << 32) | offset_low, origin);
+		...
+	}
+ 
+* Note: fget gives a avalanche !! can we use @define to inspect file struct ? or can we map tid ?
+	Note: we can add the fd and tid in a map when sys starts, log fget_light if fd and tid are in the map, and release them after sys return
+	Note: overcomplicated, I've decide to keep both calls
+*/
+probe generic.fop.llseek {
+		if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe generic.fop.llseek.return {
+	#$file:struct file* $offset:loff_t $origin:int
+        if ( shouldlog() ) printf("%s>%s>%s>%s>%d>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info($file), offset, _seek_whence_str(origin), $return)
+}
+
+probe kernel.function("SyS_llseek")!, kernel.function("sys_llseek") ? {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("SyS_llseek").return !, kernel.function("sys_llseek").return ? {
+        whence_str = _seek_whence_str($origin)
+        #argstr = sprintf("%d, 0x%x, 0x%x, %p, %s", $fd, $offset_high, $offset_low, $result, whence_str)
+         if  ( shouldlog() ) printf("%s>%s>%s>%d>%d>%d>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), $fd, $offset_high, $offset_low, whence_str, kernel_int($result))
+}
+
+/** 
+* FSTAT
+syscalls.stp
+	probe syscall.fstat = kernel.function("sys_fstat").call ?,
+                      kernel.function("SyS_fstat64").call ?,
+                      kernel.function("sys_fstat64").call ?,
+                      kernel.function("sys32_fstat64").call ?,
+                      kernel.function("SyS_newfstat").call ?,
+                      kernel.function("sys_newfstat").call ?,
+                      kernel.function("sys_oabi_fstat64").call ?,
+                      kernel.function("compat_sys_newfstat").call ?
+stat.c 
+	SYSCALL_DEFINE2(fstat, unsigned int, fd, struct __old_kernel_stat __user *, statbuf)
+		struct kstat stat;
+	        int error = vfs_fstat(fd, &stat);
+        	if (!error)
+                	error = cp_old_stat(&stat, statbuf);
+	        return error;
+
+	int vfs_fstat(unsigned int fd, struct kstat *stat)
+        	struct file *f = fget(fd);
+	        int error = -EBADF;
+        	if (f) {
+                	error = vfs_getattr(f->f_path.mnt, f->f_path.dentry, stat);
+	                fput(f);
+        	}
+	        return error;
+
+Note: The equivalent calls (sys_) has not dentry, path or file struct, I'll keep this choice (which uses fd)
+Note: We use fd and probe fget
+	Note: we need to keep state or do post-processing TODO:
+*/
+probe syscall.fstat {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.fstat.return {
+	#$fd:unsigned int $statbuf:struct __old_kernel_stat* $stat:struct kstat $error:int
+	 if  ( shouldlog() ) printf("%s>%s>%s>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), $fd, $return)
+}
+
+/** 
+* FSTATFS
+syscalls.stp
+	probe syscall.fstatfs = kernel.function("compat_sys_fstatfs").call ?,
+                        kernel.function("SyS_fstatfs").call !,
+                        kernel.function("sys_fstatfs").call
+
+open.c
+	SYSCALL_DEFINE2(fstatfs, unsigned int, fd, struct statfs __user *, buf)
+        	struct file * file;
+	        struct statfs tmp;
+        	int error;
+	        error = -EBADF;
+        	file = fget(fd);
+	        if (!file)
+        	        goto out;
+	        error = vfs_statfs_native(file->f_path.dentry, &tmp);
+        	if (!error && copy_to_user(buf, &tmp, sizeof(tmp)))
+                	error = -EFAULT;
+	        fput(file);
+	out:
+ 	       return error;
+
+Note: Same from FSTAT, we have not access to dentry, path or file
+Note: we use fd and probe fget
+	Note: we need to keep state or do post-processing TODO:
+*/
+probe syscall.fstatfs {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.fstatfs.return {
+        #$fd:unsigned int $buf:struct statfs* $file:struct file* $tmp:struct statfs $error:int
+         if  ( shouldlog() ) printf("%s>%s>%s>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), $fd, $return)
+}
+
+/** 
+* LSTAT
+syscalls.stap
+	probe syscall.lstat = kernel.function("sys_lstat").call ?,
+                      kernel.function("SyS_newlstat").call ?,
+                      kernel.function("sys_newlstat").call ?,
+                      kernel.function("compat_sys_newlstat").call ?,
+                      kernel.function("sys32_lstat64").call ?,
+                      kernel.function("SyS_lstat64").call ?,
+
+stat.c
+	SYSCALL_DEFINE2(lstat, char __user *, filename, struct __old_kernel_stat __user *, statbuf) {
+        	struct kstat stat;
+	        int error;
+
+        	error = vfs_lstat(filename, &stat);
+	        if (error)
+        	        return error;
+	        return cp_old_stat(&stat, statbuf);
+	}
+
+	int vfs_lstat(char __user *name, struct kstat *stat) {
+	        return vfs_fstatat(AT_FDCWD, name, stat, AT_SYMLINK_NOFOLLOW);
+	}
+
+Note: Same from FSTAT, no access to dentry, path or file
+Note: vfs_lstat is always called from lstat syscall and we can use CWD because AT_FDCWD flag
+	Note: (OK. tested for 100MB file)
+	Note: We do not have file type here
+*/
+probe syscall.lstat {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.lstat.return {
+	#$filename:char* $statbuf:struct __old_kernel_stat* $stat:struct kstat $error:int
+	 if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($filename), $return)
+}
+
+/** 
+* STAT
+syscalls2.stap 
+	probe syscall.stat = kernel.function("sys_stat").call ?,
+                     kernel.function("SyS_newstat").call ?,
+                     kernel.function("sys_newstat").call ?,
+                     kernel.function("sys32_stat64").call ?,
+                     kernel.function("SyS_stat64").call ?,
+                     kernel.function("sys_stat64").call ?,
+                     kernel.function("sys_oabi_stat64").call ?,
+                     kernel.function("compat_sys_newstat").call ?
+
+stat.c
+	SYSCALL_DEFINE2(stat, char __user *, filename, struct __old_kernel_stat __user *, statbuf) {
+	        struct kstat stat;
+        	int error;
+	        error = vfs_stat(filename, &stat);
+        	if (error)
+                	return error;
+	        return cp_old_stat(&stat, statbuf);
+	}
+
+	int vfs_stat(char __user *name, struct kstat *stat) {
+	        return vfs_fstatat(AT_FDCWD, name, stat, 0);
+	}
+	EXPORT_SYMBOL(vfs_stat);
+
+Note: vfs_lstat is always called from lstat syscall and we can use CWD because AT_FDCWD flag
+	Note: OK, testes for 100MB file. However we had only one line with relative path:
+		0 1163 1163 (cron) sys_stat64 1317750601526436-18178 /var/spool/cron/ crontabs 0
+	Note: we do not have file type here
+*/
+probe syscall.stat {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.stat.return {
+	#filename:char* $statbuf:struct __old_kernel_stat* $stat:struct kstat $error:int
+	 if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($filename), $return)
+}
+
+/** 
+* STATFS
+syscalls2.stp
+	probe syscall.statfs = kernel.function("compat_sys_statfs").call ?,
+                       kernel.function("SyS_statfs").call !,
+                       kernel.function("sys_statfs").call ?
+
+open.c
+	SYSCALL_DEFINE2(statfs, const char __user *, pathname, struct statfs __user *, buf) {
+	        struct path path;
+        	int error;
+
+	        error = user_path(pathname, &path);
+        	if (!error) {
+                	struct statfs tmp;
+	                error = vfs_statfs_native(path.dentry, &tmp);
+        	        if (!error && copy_to_user(buf, &tmp, sizeof(tmp)))
+                	        error = -EFAULT;
+	                path_put(&path);
+        	}
+	        return error;
+	}
+
+62:#define user_path(name, path) user_path_at(AT_FDCWD, name, LOOKUP_FOLLOW, path)
+64:#define user_path_dir(name, path) \
+../include/linux/namei.h
+
+Note: We can replace vfs by sys and use CWD because syscall statfs calls user_path
+	Note: It is not working fine. 1) we have more calls to vfs than sys (maybe other sys calls vfs) 2)all sys probed give "/" and "/" as cwd and basepath (maybe a special file?)
+	Note: if we remove vfs we loose file type here 
+		TODO: are we going to remove probe to special file under nfs file system. Are we need to simulare them ?
+		TODO: watch a log to see if we have big number of statfs calls to special file (socket without names)
+		
+*/
+probe kernel.function("vfs_statfs") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_statfs").return {
+        #$dentry:struct dentry* $buf:struct kstatfs*
+         if  ( shouldlog() ) printf("%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info_from_dentry($dentry), $return)
+}
+
+probe syscall.statfs {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.statfs.return {
+	#syscall.statfs name:string buf_uaddr:long path:string argstr:string $pathname:char const* $buf:struct statfs*
+         if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), $return)
+}
+
+/** 
+* GETXATTR
+* syscalls.stp
+* 	probe syscall.getxattr = kernel.function("SyS_getxattr").call !,
+                         kernel.function("sys_getxattr").call
+
+ xattr.c
+	SYSCALL_DEFINE4(getxattr, const char __user *, pathname, const char __user *, name, void __user *, value, size_t, size) {
+	        struct path path;
+        	ssize_t error;
+	        error = user_path(pathname, &path);
+        	if (error)
+                	return error;
+	        error = getxattr(path.dentry, name, value, size);
+        	path_put(&path);
+	        return error;
+	}
+* 
+* Note: We can replace vfs by sys and use CWD because syscall getxattr calls user_path
+	Note: Need to write code to test it. It is a very rare call TODO:
+	Note: if we remove vfs we loose file type TODO:
+*/
+probe kernel.function("vfs_getxattr") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_getxattr").return {
+        #$dentry:struct dentry* $name:char const* $value:void* $size:size_t
+       if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info_from_dentry($dentry), user_string_quoted($name), user_string_quoted($value), $return)
+}
+
+probe syscall.getxattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.getxattr.return {
+	#syscall.getxattr name:string path:string name2:string value_uaddr:long size:long argstr:string $pathname:char const* $name:char const* $value:void* $size:size_t
+         if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), $return)
+}
+
+/** 
+* REMOVEXATTR
+* syscalls2.stp
+	probe syscall.removexattr = kernel.function("SyS_removexattr").call !,
+                            kernel.function("sys_removexattr").call
+
+xattr.c
+	SYSCALL_DEFINE2(removexattr, const char __user *, pathname, const char __user *, name) {
+	        struct path path;
+        	int error;
+	        error = user_path(pathname, &path);
+        	if (error)
+                	return error;
+	        error = mnt_want_write(path.mnt);
+        	if (!error) {
+                	error = removexattr(path.dentry, name);
+	                mnt_drop_write(path.mnt);
+	        }
+        	path_put(&path);
+	        return error;
+	}
+
+* Note: We can replace vfs by sys and use CWD because syscall removexattr calls user_path
+*	Note: we have to write code to test it. It is a very rare call
+	Note: if we remove vfs we loose file type TODO:
+*/
+probe kernel.function("vfs_removexattr") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_removexattr").return {
+        #$dentry:struct dentry* $name:char const*
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info_from_dentry($dentry), user_string($name), $return)
+}
+
+probe syscall.removexattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.removexattr.return {
+	#syscall.removexattr name:string name_str:string path:string argstr:string $pathname:char const* $name:char const*
+         if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), $return)
+}
+
+/**
+* SETXATTR
+
+syscalls2.stp
+
+probe syscall.setxattr = kernel.function("SyS_setxattr").call !,
+                         kernel.function("sys_setxattr").call
+
+xattr.c 
+	SYSCALL_DEFINE5(setxattr, const char __user *, pathname, const char __user *, name, const void __user *, value, size_t, size, int, flags) {
+	        struct path path;
+        	int error;
+
+	        error = user_path(pathname, &path);
+        	if (error)
+                	return error;
+	        error = mnt_want_write(path.mnt);
+        	if (!error) {
+                	error = setxattr(path.dentry, name, value, size, flags);
+	                mnt_drop_write(path.mnt);
+        	}
+	        path_put(&path);
+        	return error;
+	}
+
+* Note: We can replace vfs by sys and use CWD because syscall setxattr calls user_path
+	Note: we have to write code to test it. It is a very rare call
+	Note: if we remove vfs we loose file type TODO:
+*/
+probe kernel.function("vfs_setxattr") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_setxattr").return {
+        #$dentry:struct dentry* $name:char const* $value:void const* $size:size_t $flags:int
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info_from_dentry($dentry), user_string_quoted($name), user_string_quoted($value), $return)
+}
+
+probe syscall.setxattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.setxattr.return {
+	#syscall.setxattr $pathname:char const* $name:char const* $value:void const* $size:size_t $flags:int
+         if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), $return)
+}
+
+/** 
+* LSETXATTR 
+
+syscalls2.stp
+	probe syscall.lsetxattr = kernel.function("SyS_lsetxattr").call !,
+                          kernel.function("sys_lsetxattr").call
+
+xattr.c
+	SYSCALL_DEFINE5(lsetxattr, const char __user *, pathname, const char __user *, name, const void __user *, value, size_t, size, int, flags){
+	        struct path path;
+        	int error;
+        	error = user_lpath(pathname, &path);
+	        if (error)
+        	        return error;
+	        error = mnt_want_write(path.mnt);
+        	if (!error) {
+                	error = setxattr(path.dentry, name, value, size, flags);
+	                mnt_drop_write(path.mnt);
+        	}
+	        path_put(&path);
+        	return error;
+	}
+
+#define user_lpath(name, path) user_path_at(AT_FDCWD, name, 0, path)
+../include/linux/namei.h
+
+Note: We can use CWD, syscall calls user_lpath that uses AT_FDCWD
+	Note: We have to write code to test it. It is a very rare call TODO:
+	Note: we do not have access to filetype in sys
+	Note: Maybe we can keep vfs and sys to xattr (not getattr) calls. They are not called often and we keep filetype if it is a problem to not have it TODO:
+*/
+probe syscall.lsetxattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.lsetxattr.return {
+        #$pathname:char const* $name:char const* $value:void const* $size:size_t $flags:int $path:struct path $error:int
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%s>%s>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), user_string($name), user_string($value), $flags, $return)
+}
+
+/** 
+* LISTXATTR
+syscalls.stp
+	probe syscall.listxattr = kernel.function("SyS_listxattr").call !,
+                          kernel.function("sys_listxattr").call
+
+xattr.c 
+	SYSCALL_DEFINE3(listxattr, const char __user *, pathname, char __user *, list, size_t, size) {
+	        struct path path;
+        	ssize_t error;
+        	error = user_path(pathname, &path);
+		if (error)
+                	return error;
+	        error = listxattr(path.dentry, list, size);
+        	path_put(&path);
+  
+Note: We can use CWD, syscall calls user_path that uses AT_FDCWD
+	Note: We have to write code to test it. It is a very rare call
+	Note: if we remove vfs we loose file type TODO:
+*/
+probe kernel.function("vfs_listxattr") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_listxattr").return {
+        #$d:struct dentry* $list:char* $size:size_t
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info_from_dentry($d), user_string($list), $return)
+}
+
+probe syscall.listxattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.listxattr.return {
+#syscall.listxattr $pathname:char const* $list:char* $size:size_t
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), user_string($list), $return)
+	
+}
+
+/**
+* FGETXATTR
+
+syscalls.stp
+	probe syscall.fgetxattr = kernel.function("SyS_fgetxattr").call !,
+                          kernel.function("sys_fgetxattr").call
+
+xattr.c
+	SYSCALL_DEFINE4(fgetxattr, int, fd, const char __user *, name, void __user *, value, size_t, size) {
+	        struct file *f;
+        	ssize_t error = -EBADF;
+
+	        f = fget(fd);
+        	if (!f)
+                	return error;
+	        audit_inode(NULL, f->f_path.dentry);
+        	error = getxattr(f->f_path.dentry, name, value, size);
+	        fput(f);
+        	return error;
+	}
+
+Note: we use fd and probe fget
+	Note: we are going to have duplicated probes because this calls getxattr. How can we remove this duplication ? Does tid work ? TODO:
+*/
+probe syscall.fgetxattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.fgetxattr.return {
+        #fd:int $name:char const* $value:void* $size:size_t $f:struct file* $error:ssize_t
+	//NOTE: file struct is not accessible
+         if  ( shouldlog() ) printf("%s>%s>%s>%s>%d>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), user_string($name), $fd, user_string($value), $return);
+}
+
+/** 
+* FREMOVEXATTR 
+
+syscalls.stp
+	probe syscall.fremovexattr = kernel.function("SyS_fremovexattr").call !,
+                             kernel.function("sys_fremovexattr").call
+
+xattr.c
+	SYSCALL_DEFINE2(fremovexattr, int, fd, const char __user *, name) {
+	        struct file *f;
+        	struct dentry *dentry;
+	        int error = -EBADF;
+
+        	f = fget(fd);
+	        if (!f)
+        	        return error;
+	        dentry = f->f_path.dentry;
+        	audit_inode(NULL, dentry);
+	        error = mnt_want_write_file(f);
+        	if (!error) {
+                	error = removexattr(dentry, name);
+	                mnt_drop_write(f->f_path.mnt);
+        	}
+	        fput(f);
+
+* Note: we use fd and probe fget
+	Note: we are going to have duplicated probes because this calls removexattr. How can we remove this duplication ? Does tid work ? TODO:
+*/
+probe syscall.fremovexattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.fremovexattr.return {
+        #$fd:int $name:char const* $f:struct file* $dentry:struct dentry* $error:int
+	//NOTE: file and dentry structs are not accessible
+         if  ( shouldlog() ) printf("%s>%s>%s>%d>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()),$fd, user_string($name), $return)
+}
+
+/**
+* LREMOVEXATTR
+*
+* syscalls.stp
+	probe syscall.lremovexattr = kernel.function("SyS_lremovexattr").call !,
+                             kernel.function("sys_lremovexattr").call
+
+xattr.c
+	SYSCALL_DEFINE2(lremovexattr, const char __user *, pathname, const char __user *, name) {
+	        struct path path;
+        	int error;
+
+	        error = user_lpath(pathname, &path);
+        	if (error)
+                	return error;
+	        error = mnt_want_write(path.mnt);
+        	if (!error) {
+                	error = removexattr(path.dentry, name);
+	                mnt_drop_write(path.mnt);
+        	}
+	        path_put(&path);
+
+*Note: We can use CWD, syscall calls user_lpath that uses AT_FDCWD
+	Note: We have to write code to test it. It is a very rare call TODO:
+	Note: we do have access to file type
+	Note: we are going to have duplicated probes because this calls removexattr. How can we remove this duplication ? Does tid work ? TODO:
+		Note: an option is to do post-processing, xattr does not probe much
+*/
+probe syscall.lremovexattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.lremovexattr.return {
+        #$pathname:char const* $name:char const* $path:struct path $error:int
+	//NOTE: path struct is not accessible
+         if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), user_string($name), $return)
+}
+
+/** 
+* FSETXATTR 
+*
+* syscalls.stp 
+	probe syscall.fsetxattr = kernel.function("SyS_fsetxattr").call !,
+                          kernel.function("sys_fsetxattr").call
+
+xattr.c 
+	SYSCALL_DEFINE5(fsetxattr, int, fd, const char __user *, name, const void __user *,value, size_t, size, int, flags) {
+ 	       struct file *f;
+        	struct dentry *dentry;
+	        int error = -EBADF;
+
+        	f = fget(fd);
+	        if (!f)
+        	        return error;
+	        dentry = f->f_path.dentry;
+        	audit_inode(NULL, dentry);
+	        error = mnt_want_write_file(f);
+        	if (!error) {
+                	error = setxattr(dentry, name, value, size, flags);
+	                mnt_drop_write(f->f_path.mnt);
+        	}
+	        fput(f);
+        	return error;
+
+* Note: we use fd and probe fget
+	TODO: test it
+	Note: we are going to have duplicated probes because this calls setxattr. How can we remove this duplication ? Does tid work ? TODO:
+*/
+probe syscall.fsetxattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.fsetxattr.return {
+        #$fd:int $name:char const* $value:void const* $size:size_t $flags:int $f:struct file* $dentry:struct dentry* $error:int
+	//NOTE: dentry and file structs are accesible
+         if  ( shouldlog() ) printf("%s>%s>%s>%d>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), $fd, user_string($name), user_string($value), $return)
+}
+
+/**
+* LLISTXATTR 
+* 
+* syscalls.stp
+* 	probe syscall.llistxattr = kernel.function("SyS_llistxattr").call !,
+                           kernel.function("sys_llistxattr").call
+* 
+* xattr.c 
+*	SYSCALL_DEFINE3(llistxattr, const char __user *, pathname, char __user *, list, size_t, size) {
+	        struct path path;
+        	ssize_t error;
+        	error = user_lpath(pathname, &path);
+	        if (error)
+        	        return error;
+	        error = listxattr(path.dentry, list, size);
+        	path_put(&path);
+	        return error;
+	}
+
+* Note: We can use CWD, syscall calls user_lpath that uses AT_FDCWD
+	Note: We have to write code to test it. It is a very rare call TODO:
+	Note: we do have access to file type
+	Note: we are going to have duplicated probes because this calls listxattr. How can we remove this duplication ? Does tid work ? TODO:
+*/
+probe syscall.llistxattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.llistxattr.return {
+        #$pathname:char const* $list:char* $size:size_t $path:struct path $error:ssize_t
+	//path is not path :) In fact, sometimes systemtap docs something and gives something else. That is the case, @see /tapset/syscall.stp:2509
+         if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), user_string($list), $return)
+}
+
+/** 
+* FLISTXATTR
+* 
+* syscalls.stp
+	probe syscall.flistxattr = kernel.function("SyS_flistxattr").call !,
+                           kernel.function("sys_flistxattr").call
+
+* xattr.c
+	SYSCALL_DEFINE3(flistxattr, int, fd, char __user *, list, size_t, size) {
+	        struct file *f;
+        	ssize_t error = -EBADF;
+
+	        f = fget(fd);
+        	if (!f)
+                	return error;
+	        audit_inode(NULL, f->f_path.dentry);
+        	error = listxattr(f->f_path.dentry, list, size);
+	        fput(f);
+        	return error;
+	}
+
+* Note: we use fd and probe fget
+	TODO: test it
+* 	Note: there will duplicated probe with listxattr (the same happens with other f*xattr
+*/
+probe syscall.flistxattr {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.flistxattr.return {
+        #$fd:int $list:char* $size:size_t $f:struct file* $error:ssize_t
+	//NOTE: file struct is not accesible
+         if  ( shouldlog() ) printf("%s>%s>%s>%d>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), $fd, user_string($list), $return)
+}
+
+/**
+* GETATTR
+* 
+* stat.c 
+	int vfs_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat) {
+	        struct inode *inode = dentry->d_inode;
+        	int retval;
+
+	        retval = security_inode_getattr(mnt, dentry);
+        	if (retval)
+                	return retval;
+
+	        if (inode->i_op->getattr)
+        	        return inode->i_op->getattr(mnt, dentry, stat);
+
+	        generic_fillattr(inode, stat);
+        	return 0;
+	}	
+	
+	EXPORT_SYMBOL(vfs_getattr);
+
+* Note: we can use vfsmount and dentry to get fullpath
+*	Note: OK, testes with a 100MB file. All probes stating with "/".
+	Note: We need to now if those file starting with "/" are really under root /
+*/
+probe kernel.function("vfs_getattr") {
+	elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_getattr").return {
+        #$mnt:struct vfsmount* $dentry:struct dentry* $stat:struct kstat*
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info_from_dentry_and_vfs_mount($dentry, $mnt), $return)
+}
+
+/** 
+* MKNOD - It is ignoring dev number (it is justing outputing the magic int). Do not think it is that important
+
+syscalls.stp
+	probe syscall.mknod = kernel.function("SyS_mknod").call !,
+                      kernel.function("sys_mknod").call
+
+SYSCALL_DEFINE3(mknod) -> sys_mknodat(AT_FDCWD, filename, mode, dev)
+
+SYSCALL_DEFINE4(mknodeat 
+     ...
+
+      error = user_path_parent(dfd, filename, &nd, &tmp);//It use CWD
+     ...
+      switch (mode & S_IFMT) {
+                case 0: case S_IFREG:
+                        error = vfs_create(nd.path.dentry->d_inode,dentry,mode,&nd);
+                        break;
+                case S_IFCHR: case S_IFBLK:
+                        error = vfs_mknod(nd.path.dentry->d_inode,dentry,mode,
+                                        new_decode_dev(dev));
+                        break;
+                case S_IFIFO: case S_IFSOCK:
+                        error = vfs_mknod(nd.path.dentry->d_inode,dentry,mode,0);
+                        break;
+
+* Note: we use CWD
+	Note: test it TODO:
+* Note: are we going to keep vfs (to keep fileinfo) ? If so (specially if mknod does happend often) we need to post-process it TODO
+*/
+probe kernel.function("vfs_mknod") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_mknod").return {
+        #$dir:struct inode* $dentry:struct dentry* $mode:int $dev:dev_t
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info_from_dentry($dentry), _mknod_mode_str($mode), $dev, $return)
+}
+
+probe syscall.mknod {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.mknod.return {
+	#syscall.mknod $filename:char const* $mode:int $dev:unsigned int
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%s>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($filename), _mknod_mode_str($mode), $dev, $return)
+}
+
+/**
+* MKDIR
+* When a validation error happens, for example the directory already exists, the call does not reach vfs.
+* FIXME: Check the above condition in all calls which are using vfs instead of sys.
+*
+* SYSCALL_DEFINE2(mkdir) -> sys_mkdirat(AT_FDCWD, pathname, mode)
+* 
+* SYSCALL_DEFINE3(mkdirat, int, dfd, const char __user *, pathname, int, mode)
+	...
+        error = user_path_parent(dfd, pathname, &nd, &tmp);//It uses CWD
+        dentry = lookup_create(&nd, 1);
+	...
+        error = vfs_mkdir(nd.path.dentry->d_inode, dentry, mode);
+
+* Note: we can use cwd here.
+* 	TODO: test it
+*/
+probe syscall.mkdir {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.mkdir.return {
+	#$pathname:char const* $mode:int
+	 if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), $mode, $return)
+}
+
+/** 
+* RENAME 
+* VFS gives us dentry. Try it out and doc the result (i think I've already did it before FIXME
+* 
+* SYSCALL_DEFINE2(rename, char oldname, char newname) -> sys_renameat(AT_FDCWD, oldname, AT_FDCWD, newname)
+* 
+SYSCALL_DEFINE4(renameat, int, olddfd, const char __user *, oldname, int, newdfd, const char __user *, newname)
+	...
+        error = user_path_parent(olddfd, oldname, &oldnd, &from);//It uses CDW
+        error = user_path_parent(newdfd, newname, &newnd, &to);//It uses CDW
+        ...
+	error = vfs_rename(old_dir->d_inode, old_dentry, new_dir->d_inode, new_dentry);
+
+* Note: we use CWD.
+	Note: Take about how the two names are handled TODO
+	Note: test it
+	Note: it think file type it not so important here, so do not logging vfs (it is not in tapset too)
+*/
+probe syscall.rename {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.rename.return {
+	#$oldname:char const* $newname:char const*
+	if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%s>%d\n",  proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($oldname), user_string($newname), $return)
+}
+
+/** 
+* RMDIR - Diferently of mkdir, when a validation error happens, the call reaches vfs but not sys <-- IT IS ODD !! 
+* 
+* SYSCALL_DEFINE1(rmdir, const char __user *, pathname) ->  do_rmdir(AT_FDCWD, pathname);
+static long do_rmdir(int dfd, const char __user *pathname)
+{
+	...
+        error = user_path_parent(dfd, pathname, &nd, &name);//It uses CDW
+	...
+        error = vfs_rmdir(nd.path.dentry->d_inode, dentry);//It used CDW
+}
+
+* Note: we use CWD
+	Note: test it TODO
+	Note: we do not have access to filetype if we remove vfs (it does not seem to be a problem here), anyway rmdir is rare and we can keep both  TODO
+*/
+probe kernel.function("vfs_rmdir") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_rmdir").return {
+        #$dir:struct inode* $dentry:struct dentry*
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info_from_dentry($dentry), $return)
+}
+
+probe syscall.rmdir {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.rmdir.return {
+	#syscall.rmdir $pathname:char const*
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), $return)
+}
+
+/** 
+* SYMLINK - Errors do not reach vfs 
+* SYSCALL_DEFINE2(symlink, const char __user *, oldname, const char __user *, newname) -> sys_symlinkat(oldname, AT_FDCWD, newname);
+
+SYSCALL_DEFINE3(symlinkat, const char __user *, oldname, int, newdfd, const char __user *, newname)
+{
+	...
+        error = user_path_parent(newdfd, newname, &nd, &to);//It uses CWD
+	...
+        error = vfs_symlink(nd.path.dentry->d_inode, dentry, from);
+}
+
+* Note: we use CWD (take care about how the two paths are handled)
+	TODO: test i
+	TODO: we do have file type, do we need it ?
+*/
+probe syscall.symlink {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.symlink.return {
+        #$oldname:char const* $newname:char const*
+         if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($oldname), user_string($newname), $return)
+}
+
+/** 
+* UNLINK - errors do not reach sys 
+* SYSCALL_DEFINE1(unlink, const char __user *, pathname) -> do_unlinkat(AT_FDCWD, pathname);
+
+SYSCALL_DEFINE3(unlinkat, int, dfd, const char __user *, pathname, int, flag)
+{
+	...
+        if (flag & AT_REMOVEDIR)
+                return do_rmdir(dfd, pathname);
+        return do_unlinkat(dfd, pathname);
+}
+
+static long do_unlinkat(int dfd, const char __user *pathname)
+{
+	...
+        error = user_path_parent(dfd, pathname, &nd, &name);//It uses CWD
+	...
+	error = vfs_unlink(nd.path.dentry->d_inode, dentry);
+}
+
+* Note: we use CWD
+	TODO: test it
+	TODO: we will loose file info if we remove vfs, is that necessary ? if unlink rare ?
+*/
+probe kernel.function("vfs_unlink") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_unlink").return {
+        #$dir:struct inode* $dentry:struct dentry*
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info_from_dentry($dentry), $return)
+}
+
+probe syscall.unlink {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.unlink.return {
+	#syscall.unlink $pathname:char const*
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($pathname), $return)
+}
+
+/** 
+* READLINK - errors do not reach vfs 
+* SYSCALL_DEFINE3(readlink, const char __user *, path, char __user *, buf, int, bufsiz) -> sys_readlinkat(AT_FDCWD, path, buf, bufsiz);
+
+SYSCALL_DEFINE4(readlinkat, int, dfd, const char __user *, pathname, char __user *, buf, int, bufsiz)
+{
+	...
+        error = user_path_at(dfd, pathname, 0, &path);//It uses CDW
+	...
+        error = inode->i_op->readlink(path.dentry, buf, bufsiz);
+}
+
+* Note: We use CWD
+	TODO: test it
+	TODO: we do not access fileinfo, is it necessary ?
+*/
+probe syscall.readlink {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.readlink.return {
+        #$path:char const* $buf:char* $bufsiz:int
+         if  ( shouldlog() ) printf("%s>%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __task_pwd_name(), user_string($path), $return)
+}
+
+/** 
+* CREATE 
+* TODO: TEST THE %#o format option in other calls using mode parameters
+* Note: sys_creat calls open using creation flag. Our replay will be at syscall level, so we are not going to log this anymore
+probe kernel.function("vfs_create") {
+	elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_create").return {
+        #$dir:struct inode* $dentry:struct dentry* $mode:int $nd:struct nameidata*
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%#o %d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info_from_dentry($dentry), $return, gettimeofday_us())
+}
+*/
+
+/** READIR */
+probe kernel.function("vfs_readdir") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("vfs_readdir").return {
+        #$file:struct file* $filler:filldir_t $buf:void*
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info($file), $return)
+}
+
+/**
+* AIO
+* I tested other aio calls (probe syscall.io_destroy, syscall.io_getevents, syscall.io_setup, syscall.io_submit, syscall.io_cancel) but
+didn't logged any probe from them in a long period, it is odds but i cannot conclude anything but they are very rare calls. Because of this, 
+I do not probe them
+*/
+
+/** 
+* aio read
+* TODO: test it
+*/
+probe kernel.function("__generic_file_aio_read")!, kernel.function("generic_file_aio_read") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("__generic_file_aio_read").return !, kernel.function("generic_file_aio_read").return {
+	/*generic.fop.aio_read $iocb:struct kiocb* $iov:struct iovec const* $nr_segs:long unsigned int $pos:loff_t $count:size_t */
+	f = $iocb->ki_filp
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info(f), $pos, $return)
+}
+
+/**
+* aio write
+* TODO: test it
+*/
+probe kernel.function("generic_file_aio_write") {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("generic_file_aio_write").return {
+	/* generic.fop.aio_write $iocb:struct kiocb* $iov:struct iovec const* $nr_segs:long unsigned int $pos:loff_t */
+	f = $iocb->ki_filp
+        if  ( shouldlog() ) printf("%s>%s>%s>%s>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), __file_info(f), $pos, $return)
+}
+
+/** Memory mapped ops */
+
+/**
+* MMAP2
+*
+* i386/syscalls.stp
+	probe syscall.mmap2 = kernel.function("sys_mmap_pgoff") ?,
+        	kernel.function("sys_mmap2") ?
+
+* mm/util.c
+*	SYSCALL_DEFINE6(mmap_pgoff, unsigned long, addr, unsigned long, len, unsigned long, prot, unsigned long, flags, unsigned long, fd, unsigned long, pgoff) {
+	        struct file * file = NULL;
+        	unsigned long retval = -EBADF;
+
+	        if (!(flags & MAP_ANONYMOUS)) {
+        	        if (unlikely(flags & MAP_HUGETLB))
+                	        return -EINVAL;
+	                file = fget(fd);
+        	        if (!file)
+                	        goto out;
+	        } else if (flags & MAP_HUGETLB) {
+        	        struct user_struct *user = NULL;
+                	len = ALIGN(len, huge_page_size(&default_hstate));
+	                file = hugetlb_file_setup(HUGETLB_ANON_FILE, len, VM_NORESERVE, &user, HUGETLB_ANONHUGE_INODE);
+	                if (IS_ERR(file))
+        	                return PTR_ERR(file);
+	        }
+        	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
+	        down_write(&current->mm->mmap_sem);
+	        retval = do_mmap_pgoff(file, addr, len, prot, flags, pgoff);
+        	up_write(&current->mm->mmap_sem);
+        	if (file)
+                	fput(file);
+	out:
+        	return retval;
+	}
+
+Note: this calls fget unless for anonymous mapping
+*/
+probe syscall.mmap2 {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.mmap2.return {
+	#syscall.mmap2 $addr:long unsigned int $len:long unsigned int $prot:long unsigned int $flags:long unsigned int $fd:long unsigned int $pgoff:long unsigned int
+        if  ( shouldlog() ) {
+		printf("%s>%s>%s>%p>%d>%s>%s>%d>%d>%p\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), $addr, $len, _mprotect_prot_str($prot), _mmap_flags($flags), __int32($fd), $pgoff, $return)
+	}
+}
+
+probe syscall.munmap {
+	if (shouldlog()) elapsed[tid(), probefunc()] = now()
+}
+probe syscall.munmap.return {
+	#syscall.munmap $addr:long unsigned int $len:size_t
+        if  ( shouldlog() ) {
+		printf("%s>%s>%s>%p>%d>%d\n", proc(), probefunc(), get_elapsed_time_and_clean(tid(), probefunc()), $addr, $len, $return)
+	}
+}

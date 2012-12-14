@@ -23,5 +23,5 @@ TO_LOGS_DIRECTORY=$LOGS_DIRECTORY/"`date "+%d-%m-%Y-%H-%M-%S"`"
 mkdir $TO_LOGS_DIRECTORY
 mkdir $TO_DATA_DIRECTORY
 
-mv *.cpu *.mem $TO_DATA_DIRECTORY
+mv *.cpu *.mem *.syscall $TO_DATA_DIRECTORY
 mv *.log $TO_LOGS_DIRECTORY
