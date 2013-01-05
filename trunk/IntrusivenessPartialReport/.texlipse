@@ -1,0 +1,14 @@
+#TeXlipse project settings
+#Sat Jan 05 16:43:28 BRT 2013
+markTmpDer=true
+builderNum=2
+outputDir=
+makeIndSty=
+bibrefDir=
+outputFormat=pdf
+tempDir=tmp
+mainTexFile=partial_report.tex
+outputFile=partial_report.pdf
+langSpell=pt
+markDer=true
+srcDir=
