@@ -1,0 +1,1 @@
+Program used in a research project at the Distributed Systems Laboratory - Federal University of Campina Grande - Brazil. The project's goal is to measure the intrusiveness of running MapReduce workloads on oportunistic environments.
